@@ -9,6 +9,8 @@
 
 Low-cost Azure Function that processes DMARC aggregate (RUA) and TLS-RPT reports from a Microsoft 365 shared mailbox and sends alerts to Teams and email.
 
+![DMARC email alert example](docs/report.png)
+
 Built for **small organizations (<200 users)** that want automated email security monitoring without the cost of a commercial DMARC service. Runs on the Azure Functions Consumption plan — effectively free for most tenants.
 
 ## What it does
