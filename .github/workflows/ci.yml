@@ -17,7 +17,9 @@ jobs:
           python-version: "3.12"
 
       - name: Install tools
-        run: pip install ruff mypy bandit types-requests
+        run: |
+          pip install -r requirements.txt
+          pip install ruff mypy bandit types-requests
 
       - name: Ruff lint
         run: ruff check .
