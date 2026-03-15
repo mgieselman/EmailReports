@@ -9,6 +9,7 @@ import azure.functions as func
 
 import alert
 import dmarc_parser
+import models
 import tlsrpt_parser
 from graph_client import GraphClient
 from models import AlertSummary
@@ -27,6 +28,15 @@ def process_email_reports(timer: func.TimerRequest) -> None:
     if timer.past_due:
         logger.warning("Timer is past due — running anyway")
 
+    try:
+        _run(timer)
+    except Exception:
+        logger.exception("Function failed")
+        _send_error_notification()
+        raise
+
+
+def _run(_timer: func.TimerRequest) -> None:
     graph = GraphClient()
 
     mailbox = os.environ["REPORT_MAILBOX"]
@@ -82,6 +92,26 @@ def process_email_reports(timer: func.TimerRequest) -> None:
         _cleanup_old_messages(graph, mailbox, mail_folder, delete_after_days)
 
     logger.info("Run complete — processed %d alert(s)", len(alerts))
+
+
+def _send_error_notification() -> None:
+    """Best-effort error notification through available channels."""
+    import traceback
+
+    error_text = traceback.format_exc()
+    error_alert = AlertSummary(
+        title="EmailReports Function Error",
+        severity=models.AlertSeverity.CRITICAL,
+        body_markdown=f"**The EmailReports function failed.**\n\n```\n{error_text[-1000:]}\n```",
+    )
+    try:
+        alert.send_teams_alert(error_alert)
+    except Exception:
+        logger.debug("Failed to send error to Teams", exc_info=True)
+    try:
+        alert.send_generic_webhook(error_alert)
+    except Exception:
+        logger.debug("Failed to send error to generic webhook", exc_info=True)
 
 
 def _cleanup_old_messages(graph: GraphClient, mailbox: str, folder: str, days: int) -> None:

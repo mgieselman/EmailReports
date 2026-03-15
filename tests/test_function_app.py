@@ -403,3 +403,46 @@ class TestProcessEmailReports:
         process_email_reports(timer)
 
         mock_alert.send_generic_webhook.assert_called()
+
+    @patch("function_app.alert")
+    @patch("function_app.GraphClient")
+    def test_error_sends_notification_and_reraises(self, MockGraphClient, mock_alert):
+        mock_client = MagicMock()
+        mock_client.list_unread_messages.side_effect = RuntimeError("Token expired")
+        MockGraphClient.return_value = mock_client
+
+        from function_app import process_email_reports
+
+        timer = MagicMock()
+        timer.past_due = False
+
+        import pytest
+
+        with pytest.raises(RuntimeError, match="Token expired"):
+            process_email_reports(timer)
+
+        # Error notification sent to Teams/webhook
+        mock_alert.send_teams_alert.assert_called_once()
+        error_alert = mock_alert.send_teams_alert.call_args[0][0]
+        assert "Error" in error_alert.title
+        mock_alert.send_generic_webhook.assert_called_once()
+
+    @patch("function_app.alert")
+    @patch("function_app.GraphClient")
+    def test_error_notification_failure_doesnt_mask_original(self, MockGraphClient, mock_alert):
+        """If error notification itself fails, the original error still propagates."""
+        mock_client = MagicMock()
+        mock_client.list_unread_messages.side_effect = RuntimeError("Graph down")
+        MockGraphClient.return_value = mock_client
+        mock_alert.send_teams_alert.side_effect = Exception("Teams also down")
+        mock_alert.send_generic_webhook.side_effect = Exception("Webhook also down")
+
+        from function_app import process_email_reports
+
+        timer = MagicMock()
+        timer.past_due = False
+
+        import pytest
+
+        with pytest.raises(RuntimeError, match="Graph down"):
+            process_email_reports(timer)
