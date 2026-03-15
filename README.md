@@ -1,5 +1,12 @@
 # EmailReports
 
+[![CI](https://github.com/mgieselman/EmailReports/actions/workflows/ci.yml/badge.svg)](https://github.com/mgieselman/EmailReports/actions/workflows/ci.yml)
+[![Deploy](https://github.com/mgieselman/EmailReports/actions/workflows/deploy.yml/badge.svg)](https://github.com/mgieselman/EmailReports/actions/workflows/deploy.yml)
+[![codecov](https://codecov.io/gh/mgieselman/EmailReports/graph/badge.svg)](https://codecov.io/gh/mgieselman/EmailReports)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 Low-cost Azure Function that processes DMARC aggregate (RUA) and TLS-RPT reports from a Microsoft 365 shared mailbox and sends alerts to Teams and email.
 
 Built for **small organizations (<200 users)** that want automated email security monitoring without the cost of a commercial DMARC service. Runs on the Azure Functions Consumption plan — effectively free for most tenants.

@@ -48,7 +48,7 @@ jobs:
           pip install pytest pytest-cov
 
       - name: Run tests
-        run: pytest tests/ --cov --cov-report=term-missing -W error::DeprecationWarning
+        run: pytest tests/ --cov --cov-report=term-missing --cov-report=xml --cov-fail-under=100 -W error::DeprecationWarning
         env:
           AZURE_TENANT_ID: test
           AZURE_CLIENT_ID: test
@@ -58,10 +58,22 @@ jobs:
           DMARC_ALIAS: dmarc@test.com
           TLSRPT_ALIAS: tls@test.com
           TEAMS_WEBHOOK_URL: ""
+          GENERIC_WEBHOOK_URL: ""
+          DELETE_AFTER_DAYS: "-1"
+          MOVE_PROCESSED_TO: ""
           ALERT_EMAIL_ENABLED: "false"
           ALERT_EMAIL_FROM: test@test.com
           ALERT_EMAIL_TO: test@test.com
           TIMER_SCHEDULE_CRON: "0 */30 * * * *"
+
+      - name: Upload coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.xml
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   gitleaks:
     runs-on: ubuntu-latest

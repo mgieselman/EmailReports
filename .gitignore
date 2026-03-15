@@ -23,5 +23,9 @@ obj/
 # Testing / coverage
 .pytest_cache/
 .coverage
+coverage.xml
 htmlcov/
+
+# Environment
+.env
 .claude/
