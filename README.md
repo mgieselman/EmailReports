@@ -248,6 +248,84 @@ python test_alert.py --email
 └── .coveragerc
 ```
 
+## Monitoring
+
+The function has three layers of failure detection, from fastest to most comprehensive:
+
+### 1. In-code error notifications (instant)
+
+If the function throws an unhandled exception, it catches the error and sends a **CRITICAL** alert with the traceback to your configured Teams webhook and/or generic webhook before re-raising. This gives you immediate visibility without needing to check the Azure Portal.
+
+### 2. Azure Monitor metric alerts (within minutes)
+
+Two alert rules notify you via email when something is wrong:
+
+| Alert | Condition | Check interval | What it means |
+|-------|-----------|----------------|---------------|
+| **Http5xx** | Any 5xx error in a 5-minute window | Every 5 min | Function crashed or threw an unhandled exception |
+| **No Executions** | Zero function executions in 1 hour | Every 30 min | Timer stopped firing — function app may be stopped, frozen, or misconfigured |
+
+To set these up in your own deployment:
+
+```bash
+# Create an action group (who gets notified)
+az monitor action-group create \
+  --name "emailreports-alerts" \
+  --resource-group rg-emailreports \
+  --short-name "EmailRpts" \
+  --action email admin admin@yourdomain.com
+
+SCOPE="/subscriptions/<sub-id>/resourceGroups/rg-emailreports/providers/Microsoft.Web/sites/func-emailreports"
+ACTION_GROUP="/subscriptions/<sub-id>/resourceGroups/rg-emailreports/providers/microsoft.insights/actionGroups/emailreports-alerts"
+
+# Alert on any function errors
+az monitor metrics alert create \
+  --name "EmailReports-Http5xx" \
+  --resource-group rg-emailreports \
+  --scopes "$SCOPE" \
+  --condition "total Http5xx > 0" \
+  --window-size 5m \
+  --evaluation-frequency 5m \
+  --severity 2 \
+  --action "$ACTION_GROUP" \
+  --description "Function execution errors"
+
+# Alert if function stops running entirely
+az monitor metrics alert create \
+  --name "EmailReports-No-Executions" \
+  --resource-group rg-emailreports \
+  --scopes "$SCOPE" \
+  --condition "total FunctionExecutionCount < 1" \
+  --window-size 1h \
+  --evaluation-frequency 30m \
+  --severity 2 \
+  --action "$ACTION_GROUP" \
+  --description "Function has not executed in over 1 hour"
+```
+
+### 3. Application Insights (full history)
+
+All logs, exceptions, and traces are stored in App Insights automatically. Useful queries in the Azure Portal **Logs** blade:
+
+```kusto
+// Recent failures
+requests
+| where success == false
+| order by timestamp desc
+| take 20
+
+// All function runs in the last 24 hours
+requests
+| where timestamp > ago(24h)
+| summarize count() by bin(timestamp, 30m), success
+| render timechart
+
+// Exceptions with full stack traces
+exceptions
+| order by timestamp desc
+| take 10
+```
+
 ## Alert Examples
 
 Email alerts use a dashboard layout with:
