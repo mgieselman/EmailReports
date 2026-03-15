@@ -11,9 +11,30 @@ import pytest
 # ---------------------------------------------------------------------------
 
 
+class TestContextManager:
+    def test_context_manager(self, mock_graph):
+        from graph_client import GraphClient
+
+        mock_graph._session = MagicMock()
+        GraphClient.close(mock_graph)
+        mock_graph._session.close.assert_called_once()
+
+    def test_enter_returns_self(self, mock_graph):
+        from graph_client import GraphClient
+
+        result = GraphClient.__enter__(mock_graph)
+        assert result is mock_graph
+
+    def test_exit_closes(self, mock_graph):
+        from graph_client import GraphClient
+
+        mock_graph._session = MagicMock()
+        GraphClient.__exit__(mock_graph, None, None, None)
+        mock_graph._session.close.assert_called_once()
+
+
 class TestTokenAcquisition:
     def test_successful_token(self, mock_graph):
-        # mock_graph was already constructed; verify it didn't blow up
         assert mock_graph is not None
 
     def test_failed_token_raises(self, monkeypatch):

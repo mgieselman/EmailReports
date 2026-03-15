@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import logging
 import os
 from datetime import UTC, datetime
@@ -123,7 +124,7 @@ def _wrap_dashboard(
 </body></html>"""
 
 
-def _build_table(headers: list[str], rows: list[list[str]], highlight_col: int | None = None) -> str:
+def _build_table(headers: list[str], rows: list[list[str]]) -> str:
     """Build a styled HTML table."""
     th_style = (
         "padding:10px 12px;text-align:left;font-size:11px;font-weight:600;"
@@ -207,12 +208,12 @@ def build_dmarc_alert(report: DmarcReport) -> AlertSummary:
     for r in report.records[:50]:
         table_rows.append(
             [
-                f'<span style="font-family:monospace;font-size:12px">{r.source_ip}</span>',
+                f'<span style="font-family:monospace;font-size:12px">{html.escape(r.source_ip)}</span>',
                 f'<span style="font-weight:600">{r.count}</span>',
                 _status_badge(r.dkim_result.value),
                 _status_badge(r.spf_result.value),
-                r.header_from,
-                f'<span style="font-size:11px;color:#64748b">{r.dkim_domain or "—"}</span>',
+                html.escape(r.header_from),
+                f'<span style="font-size:11px;color:#64748b">{html.escape(r.dkim_domain) or "—"}</span>',
             ]
         )
 
@@ -289,20 +290,20 @@ def build_tlsrpt_alert(report: TlsRptReport) -> AlertSummary:
             for fd in pol.failure_details[:20]:
                 table_rows.append(
                     [
-                        f'<span style="font-weight:600">{pol.policy_domain}</span>',
-                        pol.policy_type.upper(),
+                        f'<span style="font-weight:600">{html.escape(str(pol.policy_domain))}</span>',
+                        html.escape(pol.policy_type.upper()),
                         _status_badge(fd.result_type, pass_value="successful"),
-                        fd.receiving_mx_hostname,
+                        html.escape(fd.receiving_mx_hostname),
                         f'<span style="font-weight:600">{fd.failed_session_count}</span>',
-                        f'<span style="font-size:11px;color:#64748b">{fd.failure_reason_code}</span>',
+                        f'<span style="font-size:11px;color:#64748b">{html.escape(fd.failure_reason_code)}</span>',
                     ]
                 )
         else:
             table_rows.append(
                 [
-                    f'<span style="font-weight:600">{pol.policy_domain}</span>',
-                    pol.policy_type.upper(),
-                    _status_badge("successful"),
+                    f'<span style="font-weight:600">{html.escape(str(pol.policy_domain))}</span>',
+                    html.escape(pol.policy_type.upper()),
+                    _status_badge("successful", pass_value="successful"),
                     "—",
                     "0",
                     "—",

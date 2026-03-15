@@ -161,12 +161,19 @@ class TestProcessEmailReports:
             "toRecipients": [{"emailAddress": {"address": to_address}}],
         }
 
+    @staticmethod
+    def _setup_graph_mock(MockGraphClient):
+        """Configure MockGraphClient to support context manager protocol."""
+        mock_client = MagicMock()
+        MockGraphClient.return_value.__enter__ = MagicMock(return_value=mock_client)
+        MockGraphClient.return_value.__exit__ = MagicMock(return_value=False)
+        return mock_client
+
     @patch("function_app.alert")
     @patch("function_app.GraphClient")
     def test_no_messages(self, MockGraphClient, mock_alert, monkeypatch):
-        mock_client = MagicMock()
+        mock_client = self._setup_graph_mock(MockGraphClient)
         mock_client.list_unread_messages.return_value = []
-        MockGraphClient.return_value = mock_client
 
         from function_app import process_email_reports
 
@@ -180,10 +187,9 @@ class TestProcessEmailReports:
     @patch("function_app.alert")
     @patch("function_app.GraphClient")
     def test_message_no_attachments_marked_read(self, MockGraphClient, mock_alert):
-        mock_client = MagicMock()
+        mock_client = self._setup_graph_mock(MockGraphClient)
         msg = self._make_message("1", "dmarc-reports@gieselman.com", has_attachments=False)
         mock_client.list_unread_messages.return_value = [msg]
-        MockGraphClient.return_value = mock_client
 
         from function_app import process_email_reports
 
@@ -196,11 +202,10 @@ class TestProcessEmailReports:
     @patch("function_app.alert")
     @patch("function_app.GraphClient")
     def test_dmarc_message_routed_correctly(self, MockGraphClient, mock_alert, dmarc_b64_gz):
-        mock_client = MagicMock()
+        mock_client = self._setup_graph_mock(MockGraphClient)
         msg = self._make_message("1", "dmarc-reports@gieselman.com")
         mock_client.list_unread_messages.return_value = [msg]
         mock_client.get_attachments.return_value = [{"name": "report.xml.gz", "contentBytes": dmarc_b64_gz}]
-        MockGraphClient.return_value = mock_client
 
         from function_app import process_email_reports
 
@@ -215,11 +220,10 @@ class TestProcessEmailReports:
     @patch("function_app.alert")
     @patch("function_app.GraphClient")
     def test_tlsrpt_message_routed_correctly(self, MockGraphClient, mock_alert, tlsrpt_b64_gz):
-        mock_client = MagicMock()
+        mock_client = self._setup_graph_mock(MockGraphClient)
         msg = self._make_message("1", "tls-reports@gieselman.com")
         mock_client.list_unread_messages.return_value = [msg]
         mock_client.get_attachments.return_value = [{"name": "report.json.gz", "contentBytes": tlsrpt_b64_gz}]
-        MockGraphClient.return_value = mock_client
 
         from function_app import process_email_reports
 
@@ -234,11 +238,10 @@ class TestProcessEmailReports:
     @patch("function_app.alert")
     @patch("function_app.GraphClient")
     def test_unknown_recipient_tries_both_parsers(self, MockGraphClient, mock_alert, dmarc_b64_gz):
-        mock_client = MagicMock()
+        mock_client = self._setup_graph_mock(MockGraphClient)
         msg = self._make_message("1", "other@gieselman.com")
         mock_client.list_unread_messages.return_value = [msg]
         mock_client.get_attachments.return_value = [{"name": "report.xml.gz", "contentBytes": dmarc_b64_gz}]
-        MockGraphClient.return_value = mock_client
 
         from function_app import process_email_reports
 
@@ -246,16 +249,14 @@ class TestProcessEmailReports:
         timer.past_due = False
         process_email_reports(timer)
 
-        # Fallback: DMARC parser finds it, TLS-RPT parser gets called but returns None
         mock_alert.build_dmarc_alert.assert_called_once()
         mock_alert.send_teams_alert.assert_called()
 
     @patch("function_app.alert")
     @patch("function_app.GraphClient")
     def test_past_due_still_runs(self, MockGraphClient, mock_alert):
-        mock_client = MagicMock()
+        mock_client = self._setup_graph_mock(MockGraphClient)
         mock_client.list_unread_messages.return_value = []
-        MockGraphClient.return_value = mock_client
 
         from function_app import process_email_reports
 
@@ -268,7 +269,7 @@ class TestProcessEmailReports:
     @patch("function_app.alert")
     @patch("function_app.GraphClient")
     def test_all_messages_marked_read(self, MockGraphClient, mock_alert, dmarc_b64_gz, tlsrpt_b64_gz):
-        mock_client = MagicMock()
+        mock_client = self._setup_graph_mock(MockGraphClient)
         msgs = [
             self._make_message("1", "dmarc-reports@gieselman.com"),
             self._make_message("2", "tls-reports@gieselman.com"),
@@ -279,7 +280,6 @@ class TestProcessEmailReports:
             [{"name": "r.xml.gz", "contentBytes": dmarc_b64_gz}],
             [{"name": "r.json.gz", "contentBytes": tlsrpt_b64_gz}],
         ]
-        MockGraphClient.return_value = mock_client
 
         from function_app import process_email_reports
 
@@ -293,11 +293,10 @@ class TestProcessEmailReports:
     @patch("function_app.GraphClient")
     def test_immediate_delete(self, MockGraphClient, mock_alert, monkeypatch, dmarc_b64_gz):
         monkeypatch.setenv("DELETE_AFTER_DAYS", "0")
-        mock_client = MagicMock()
+        mock_client = self._setup_graph_mock(MockGraphClient)
         msg = self._make_message("1", "dmarc-reports@gieselman.com")
         mock_client.list_unread_messages.return_value = [msg]
         mock_client.get_attachments.return_value = [{"name": "r.xml.gz", "contentBytes": dmarc_b64_gz}]
-        MockGraphClient.return_value = mock_client
 
         from function_app import process_email_reports
 
@@ -311,11 +310,10 @@ class TestProcessEmailReports:
     @patch("function_app.GraphClient")
     def test_no_delete_when_minus_one(self, MockGraphClient, mock_alert, monkeypatch, dmarc_b64_gz):
         monkeypatch.setenv("DELETE_AFTER_DAYS", "-1")
-        mock_client = MagicMock()
+        mock_client = self._setup_graph_mock(MockGraphClient)
         msg = self._make_message("1", "dmarc-reports@gieselman.com")
         mock_client.list_unread_messages.return_value = [msg]
         mock_client.get_attachments.return_value = [{"name": "r.xml.gz", "contentBytes": dmarc_b64_gz}]
-        MockGraphClient.return_value = mock_client
 
         from function_app import process_email_reports
 
@@ -329,13 +327,12 @@ class TestProcessEmailReports:
     @patch("function_app.GraphClient")
     def test_deferred_delete(self, MockGraphClient, mock_alert, monkeypatch):
         monkeypatch.setenv("DELETE_AFTER_DAYS", "30")
-        mock_client = MagicMock()
+        mock_client = self._setup_graph_mock(MockGraphClient)
         mock_client.list_unread_messages.return_value = []
         mock_client.list_read_messages_older_than.return_value = [
             {"id": "old-1", "subject": "old report"},
             {"id": "old-2", "subject": "old report 2"},
         ]
-        MockGraphClient.return_value = mock_client
 
         from function_app import process_email_reports
 
@@ -351,11 +348,10 @@ class TestProcessEmailReports:
     def test_move_processed_to_folder(self, MockGraphClient, mock_alert, monkeypatch, dmarc_b64_gz):
         monkeypatch.setenv("DELETE_AFTER_DAYS", "-1")
         monkeypatch.setenv("MOVE_PROCESSED_TO", "Processed")
-        mock_client = MagicMock()
+        mock_client = self._setup_graph_mock(MockGraphClient)
         msg = self._make_message("1", "dmarc-reports@gieselman.com")
         mock_client.list_unread_messages.return_value = [msg]
         mock_client.get_attachments.return_value = [{"name": "r.xml.gz", "contentBytes": dmarc_b64_gz}]
-        MockGraphClient.return_value = mock_client
 
         from function_app import process_email_reports
 
@@ -372,11 +368,10 @@ class TestProcessEmailReports:
         """When DELETE_AFTER_DAYS=0, delete takes priority over move."""
         monkeypatch.setenv("DELETE_AFTER_DAYS", "0")
         monkeypatch.setenv("MOVE_PROCESSED_TO", "Processed")
-        mock_client = MagicMock()
+        mock_client = self._setup_graph_mock(MockGraphClient)
         msg = self._make_message("1", "dmarc-reports@gieselman.com")
         mock_client.list_unread_messages.return_value = [msg]
         mock_client.get_attachments.return_value = [{"name": "r.xml.gz", "contentBytes": dmarc_b64_gz}]
-        MockGraphClient.return_value = mock_client
 
         from function_app import process_email_reports
 
@@ -390,11 +385,10 @@ class TestProcessEmailReports:
     @patch("function_app.alert")
     @patch("function_app.GraphClient")
     def test_generic_webhook_called(self, MockGraphClient, mock_alert, dmarc_b64_gz):
-        mock_client = MagicMock()
+        mock_client = self._setup_graph_mock(MockGraphClient)
         msg = self._make_message("1", "dmarc-reports@gieselman.com")
         mock_client.list_unread_messages.return_value = [msg]
         mock_client.get_attachments.return_value = [{"name": "r.xml.gz", "contentBytes": dmarc_b64_gz}]
-        MockGraphClient.return_value = mock_client
 
         from function_app import process_email_reports
 
@@ -406,10 +400,57 @@ class TestProcessEmailReports:
 
     @patch("function_app.alert")
     @patch("function_app.GraphClient")
+    def test_single_message_failure_continues(self, MockGraphClient, mock_alert, dmarc_b64_gz):
+        """A failure on one message should not skip subsequent messages."""
+        mock_client = self._setup_graph_mock(MockGraphClient)
+        msgs = [
+            self._make_message("1", "dmarc-reports@gieselman.com"),
+            self._make_message("2", "dmarc-reports@gieselman.com"),
+        ]
+        mock_client.list_unread_messages.return_value = msgs
+        mock_client.get_attachments.side_effect = [
+            RuntimeError("transient 503"),
+            [{"name": "r.xml.gz", "contentBytes": dmarc_b64_gz}],
+        ]
+
+        import pytest
+
+        from function_app import process_email_reports
+
+        timer = MagicMock()
+        timer.past_due = False
+        with pytest.raises(RuntimeError, match="1 message"):
+            process_email_reports(timer)
+
+        # Second message still processed
+        mock_alert.build_dmarc_alert.assert_called_once()
+
+    @patch("function_app.alert")
+    @patch("function_app.GraphClient")
+    def test_cleanup_delete_failure_continues(self, MockGraphClient, mock_alert, monkeypatch):
+        """A delete failure on one old message should not abort cleanup."""
+        monkeypatch.setenv("DELETE_AFTER_DAYS", "30")
+        mock_client = self._setup_graph_mock(MockGraphClient)
+        mock_client.list_unread_messages.return_value = []
+        mock_client.list_read_messages_older_than.return_value = [
+            {"id": "old-1"},
+            {"id": "old-2"},
+        ]
+        mock_client.delete_message.side_effect = [RuntimeError("404"), None]
+
+        from function_app import process_email_reports
+
+        timer = MagicMock()
+        timer.past_due = False
+        process_email_reports(timer)
+
+        assert mock_client.delete_message.call_count == 2
+
+    @patch("function_app.alert")
+    @patch("function_app.GraphClient")
     def test_error_sends_notification_and_reraises(self, MockGraphClient, mock_alert):
-        mock_client = MagicMock()
+        mock_client = self._setup_graph_mock(MockGraphClient)
         mock_client.list_unread_messages.side_effect = RuntimeError("Token expired")
-        MockGraphClient.return_value = mock_client
 
         from function_app import process_email_reports
 
@@ -421,7 +462,6 @@ class TestProcessEmailReports:
         with pytest.raises(RuntimeError, match="Token expired"):
             process_email_reports(timer)
 
-        # Error notification sent to Teams/webhook
         mock_alert.send_teams_alert.assert_called_once()
         error_alert = mock_alert.send_teams_alert.call_args[0][0]
         assert "Error" in error_alert.title
@@ -431,9 +471,8 @@ class TestProcessEmailReports:
     @patch("function_app.GraphClient")
     def test_error_notification_failure_doesnt_mask_original(self, MockGraphClient, mock_alert):
         """If error notification itself fails, the original error still propagates."""
-        mock_client = MagicMock()
+        mock_client = self._setup_graph_mock(MockGraphClient)
         mock_client.list_unread_messages.side_effect = RuntimeError("Graph down")
-        MockGraphClient.return_value = mock_client
         mock_alert.send_teams_alert.side_effect = Exception("Teams also down")
         mock_alert.send_generic_webhook.side_effect = Exception("Webhook also down")
 

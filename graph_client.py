@@ -8,11 +8,19 @@ from typing import Any
 
 import msal
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 logger = logging.getLogger(__name__)
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 SCOPES = ["https://graph.microsoft.com/.default"]
+REQUEST_TIMEOUT = 30
+
+
+def _escape_odata(value: str) -> str:
+    """Escape single quotes for OData filter strings."""
+    return value.replace("'", "''")
 
 
 class GraphClient:
@@ -28,6 +36,19 @@ class GraphClient:
             client_credential=self._client_secret,
         )
         self._session = requests.Session()
+        retry = Retry(
+            total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504], respect_retry_after_header=True
+        )
+        self._session.mount("https://", HTTPAdapter(max_retries=retry))
+
+    def close(self) -> None:
+        self._session.close()
+
+    def __enter__(self) -> GraphClient:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.close()
 
     # -- token ---------------------------------------------------------------
 
@@ -49,8 +70,9 @@ class GraphClient:
         Searches top-level folders only. Returns None if not found.
         """
         url = f"{GRAPH_BASE}/users/{mailbox}/mailFolders"
-        params = {"$filter": f"displayName eq '{folder_name}'", "$select": "id,displayName"}
-        resp = self._session.get(url, headers=self._headers, params=params)
+        safe_name = _escape_odata(folder_name)
+        params = {"$filter": f"displayName eq '{safe_name}'", "$select": "id,displayName"}
+        resp = self._session.get(url, headers=self._headers, params=params, timeout=REQUEST_TIMEOUT)
         resp.raise_for_status()
         folders = resp.json().get("value", [])
         if folders:
@@ -86,11 +108,12 @@ class GraphClient:
             "$orderby": "receivedDateTime desc",
         }
         if subject_filter:
-            params["$filter"] += f" and contains(subject, '{subject_filter}')"
+            safe_filter = _escape_odata(subject_filter)
+            params["$filter"] += f" and contains(subject, '{safe_filter}')"
 
         messages: list[dict[str, Any]] = []
         while url:
-            resp = self._session.get(url, headers=self._headers, params=params)
+            resp = self._session.get(url, headers=self._headers, params=params, timeout=REQUEST_TIMEOUT)
             resp.raise_for_status()
             data = resp.json()
             messages.extend(data.get("value", []))
@@ -101,18 +124,20 @@ class GraphClient:
     def get_attachments(self, mailbox: str, message_id: str) -> list[dict[str, Any]]:
         """Return all attachments for a given message."""
         url = f"{GRAPH_BASE}/users/{mailbox}/messages/{message_id}/attachments"
-        resp = self._session.get(url, headers=self._headers, params={"$select": "id,name,contentType,contentBytes"})
+        resp = self._session.get(
+            url, headers=self._headers, params={"$select": "id,name,contentType,contentBytes"}, timeout=REQUEST_TIMEOUT
+        )
         resp.raise_for_status()
         return resp.json().get("value", [])
 
     def mark_as_read(self, mailbox: str, message_id: str) -> None:
         url = f"{GRAPH_BASE}/users/{mailbox}/messages/{message_id}"
-        resp = self._session.patch(url, headers=self._headers, json={"isRead": True})
+        resp = self._session.patch(url, headers=self._headers, json={"isRead": True}, timeout=REQUEST_TIMEOUT)
         resp.raise_for_status()
 
     def delete_message(self, mailbox: str, message_id: str) -> None:
         url = f"{GRAPH_BASE}/users/{mailbox}/messages/{message_id}"
-        resp = self._session.delete(url, headers=self._headers)
+        resp = self._session.delete(url, headers=self._headers, timeout=REQUEST_TIMEOUT)
         resp.raise_for_status()
 
     def move_message(self, mailbox: str, message_id: str, destination_folder: str) -> None:
@@ -122,7 +147,9 @@ class GraphClient:
             logger.warning("Folder '%s' not found — skipping move for message %s", destination_folder, message_id)
             return
         url = f"{GRAPH_BASE}/users/{mailbox}/messages/{message_id}/move"
-        resp = self._session.post(url, headers=self._headers, json={"destinationId": folder_id})
+        resp = self._session.post(
+            url, headers=self._headers, json={"destinationId": folder_id}, timeout=REQUEST_TIMEOUT
+        )
         resp.raise_for_status()
 
     def list_read_messages_older_than(
@@ -153,7 +180,7 @@ class GraphClient:
 
         messages: list[dict[str, Any]] = []
         while url:
-            resp = self._session.get(url, headers=self._headers, params=params)
+            resp = self._session.get(url, headers=self._headers, params=params, timeout=REQUEST_TIMEOUT)
             resp.raise_for_status()
             data = resp.json()
             messages.extend(data.get("value", []))
@@ -174,6 +201,6 @@ class GraphClient:
             },
             "saveToSentItems": "false",
         }
-        resp = self._session.post(url, headers=self._headers, json=payload)
+        resp = self._session.post(url, headers=self._headers, json=payload, timeout=REQUEST_TIMEOUT)
         resp.raise_for_status()
         logger.info("Alert email sent to %s", to_address)

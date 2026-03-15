@@ -206,3 +206,21 @@ class TestEdgeCases:
     def test_text_helper_with_none_parent(self):
         result = dmarc_parser._text(None, "tag", "default")
         assert result == "default"
+
+    def test_oversized_gz_rejected(self, dmarc_xml_bytes, monkeypatch):
+        import gzip
+
+        monkeypatch.setattr(dmarc_parser, "MAX_DECOMPRESSED_SIZE", 10)
+        gz_data = gzip.compress(dmarc_xml_bytes)
+        b64 = base64.b64encode(gz_data).decode()
+        result = dmarc_parser.parse_attachment("report.xml.gz", b64)
+        assert result is None
+
+    def test_oversized_zip_entry_rejected(self, dmarc_xml_bytes, monkeypatch):
+        monkeypatch.setattr(dmarc_parser, "MAX_DECOMPRESSED_SIZE", 10)
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("report.xml", dmarc_xml_bytes)
+        b64 = base64.b64encode(buf.getvalue()).decode()
+        result = dmarc_parser.parse_attachment("report.zip", b64)
+        assert result is None

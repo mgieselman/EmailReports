@@ -59,11 +59,6 @@ class DmarcReport:
 # ---------------------------------------------------------------------------
 
 
-class TlsResultType(StrEnum):
-    SUCCESSFUL = "successful"
-    FAILURE = "failure"
-
-
 @dataclass
 class TlsFailureDetail:
     result_type: str

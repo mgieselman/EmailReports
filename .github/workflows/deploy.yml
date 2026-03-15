@@ -5,6 +5,32 @@ on:
     branches: [main]
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install tools
+        run: |
+          pip install -r requirements.txt
+          pip install ruff mypy bandit types-requests
+
+      - name: Ruff lint
+        run: ruff check .
+
+      - name: Ruff format
+        run: ruff format --check .
+
+      - name: Mypy
+        run: mypy *.py
+
+      - name: Bandit security scan
+        run: bandit -r . -x ./.venv,./tests -ll
+
   test:
     runs-on: ubuntu-latest
     steps:
@@ -20,7 +46,7 @@ jobs:
           pip install pytest pytest-cov
 
       - name: Run tests
-        run: pytest tests/ --cov --cov-report=term-missing -W error::DeprecationWarning
+        run: pytest tests/ --cov --cov-report=term-missing --cov-fail-under=100 -W error::DeprecationWarning
         env:
           AZURE_TENANT_ID: test
           AZURE_CLIENT_ID: test
@@ -30,13 +56,16 @@ jobs:
           DMARC_ALIAS: dmarc@test.com
           TLSRPT_ALIAS: tls@test.com
           TEAMS_WEBHOOK_URL: ""
+          GENERIC_WEBHOOK_URL: ""
+          DELETE_AFTER_DAYS: "-1"
+          MOVE_PROCESSED_TO: ""
           ALERT_EMAIL_ENABLED: "false"
           ALERT_EMAIL_FROM: test@test.com
           ALERT_EMAIL_TO: test@test.com
           TIMER_SCHEDULE_CRON: "0 */30 * * * *"
 
   deploy:
-    needs: test
+    needs: [lint, test]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:

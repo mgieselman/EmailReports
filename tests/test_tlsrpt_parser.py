@@ -197,3 +197,25 @@ class TestEdgeCases:
         report = tlsrpt_parser.parse_attachment("r.json", b64)
         assert report.org_name == ""
         assert report.policies == []
+
+    def test_oversized_gz_rejected(self, tlsrpt_json_bytes, monkeypatch):
+        import gzip
+
+        monkeypatch.setattr(tlsrpt_parser, "MAX_DECOMPRESSED_SIZE", 10)
+        gz_data = gzip.compress(tlsrpt_json_bytes)
+        b64 = base64.b64encode(gz_data).decode()
+        result = tlsrpt_parser.parse_attachment("report.json.gz", b64)
+        assert result is None
+
+    def test_oversized_zip_entry_rejected(self, tlsrpt_json_bytes, monkeypatch):
+        monkeypatch.setattr(tlsrpt_parser, "MAX_DECOMPRESSED_SIZE", 10)
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("report.json", tlsrpt_json_bytes)
+        b64 = base64.b64encode(buf.getvalue()).decode()
+        result = tlsrpt_parser.parse_attachment("report.zip", b64)
+        assert result is None
+
+    def test_tz_aware_timestamp_preserved(self):
+        result = tlsrpt_parser._parse_ts("2024-03-15T05:00:00+05:00")
+        assert result.hour == 0  # 05:00+05:00 = 00:00 UTC

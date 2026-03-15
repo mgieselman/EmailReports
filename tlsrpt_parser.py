@@ -14,6 +14,8 @@ from models import TlsFailureDetail, TlsPolicy, TlsRptReport
 
 logger = logging.getLogger(__name__)
 
+MAX_DECOMPRESSED_SIZE = 50 * 1024 * 1024  # 50 MB
+
 
 def parse_attachment(name: str, content_bytes_b64: str) -> TlsRptReport | None:
     """Decode a Graph attachment and return a TlsRptReport, or None."""
@@ -34,7 +36,11 @@ def _extract_json(filename: str, raw: bytes) -> bytes | None:
         return raw
     if lower.endswith(".gz"):
         try:
-            return gzip.decompress(raw)
+            data = gzip.decompress(raw)
+            if len(data) > MAX_DECOMPRESSED_SIZE:
+                logger.warning("Decompressed size exceeds limit for %s", filename)
+                return None
+            return data
         except Exception:
             logger.warning("Failed to gunzip %s", filename)
             return None
@@ -44,6 +50,10 @@ def _extract_json(filename: str, raw: bytes) -> bytes | None:
                 json_names = [n for n in zf.namelist() if n.lower().endswith(".json")]
                 if not json_names:
                     logger.warning("No JSON found inside zip %s", filename)
+                    return None
+                info = zf.getinfo(json_names[0])
+                if info.file_size > MAX_DECOMPRESSED_SIZE:
+                    logger.warning("Decompressed size exceeds limit for %s in %s", json_names[0], filename)
                     return None
                 return zf.read(json_names[0])
         except Exception:
@@ -82,7 +92,7 @@ def _parse_json(data: bytes) -> TlsRptReport:
         policies.append(
             TlsPolicy(
                 policy_type=policy_el.get("policy-type", policy_el.get("policy_type", "")),
-                policy_domain=policy_el.get("policy-domain", policy_el.get("policy_domain", [None])),
+                policy_domain=policy_el.get("policy-domain", policy_el.get("policy_domain", "")),
                 successful_session_count=summary.get(
                     "total-successful-session-count", summary.get("total_successful_session_count", 0)
                 ),
@@ -107,7 +117,10 @@ def _parse_ts(value: str) -> datetime:
         return datetime.fromtimestamp(0, tz=UTC)
     for fmt in ("%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%d"):
         try:
-            return datetime.strptime(value, fmt).replace(tzinfo=UTC)
+            dt = datetime.strptime(value, fmt)
+            if dt.tzinfo is not None:
+                return dt.astimezone(UTC)
+            return dt.replace(tzinfo=UTC)
         except ValueError:
             continue
     return datetime.fromtimestamp(0, tz=UTC)

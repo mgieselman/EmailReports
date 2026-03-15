@@ -15,6 +15,8 @@ from models import DmarcDisposition, DmarcRecord, DmarcReport, DmarcResult
 
 logger = logging.getLogger(__name__)
 
+MAX_DECOMPRESSED_SIZE = 50 * 1024 * 1024  # 50 MB
+
 
 def parse_attachment(name: str, content_bytes_b64: str) -> DmarcReport | None:
     """Decode a Graph attachment and return a DmarcReport, or None on failure."""
@@ -31,7 +33,11 @@ def _extract_xml(filename: str, raw: bytes) -> bytes | None:
         return raw
     if lower.endswith(".gz"):
         try:
-            return gzip.decompress(raw)
+            data = gzip.decompress(raw)
+            if len(data) > MAX_DECOMPRESSED_SIZE:
+                logger.warning("Decompressed size exceeds limit for %s", filename)
+                return None
+            return data
         except Exception:
             logger.warning("Failed to gunzip %s", filename)
             return None
@@ -41,6 +47,10 @@ def _extract_xml(filename: str, raw: bytes) -> bytes | None:
                 xml_names = [n for n in zf.namelist() if n.lower().endswith(".xml")]
                 if not xml_names:
                     logger.warning("No XML found inside zip %s", filename)
+                    return None
+                info = zf.getinfo(xml_names[0])
+                if info.file_size > MAX_DECOMPRESSED_SIZE:
+                    logger.warning("Decompressed size exceeds limit for %s in %s", xml_names[0], filename)
                     return None
                 return zf.read(xml_names[0])
         except Exception:
