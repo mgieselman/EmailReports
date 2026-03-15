@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feedback>
+  <report_metadata>
+    <org_name>yahoo.com</org_name>
+    <report_id>minimal-001</report_id>
+    <date_range><begin>1710460800</begin><end>1710547200</end></date_range>
+  </report_metadata>
+  <policy_published>
+    <domain>gieselman.com</domain>
+    <p>none</p>
+  </policy_published>
+</feedback>

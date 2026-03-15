@@ -1,0 +1,24 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "python",
+
+    "AZURE_TENANT_ID": "<your-entra-tenant-id>",
+    "AZURE_CLIENT_ID": "<your-app-registration-client-id>",
+    "AZURE_CLIENT_SECRET": "<your-app-registration-client-secret>",
+
+    "REPORT_MAILBOX": "emailreports@gieselman.com",
+    "MAIL_FOLDER": "Email Reports",
+    "DMARC_ALIAS": "dmarc-reports@gieselman.com",
+    "TLSRPT_ALIAS": "tls-reports@gieselman.com",
+
+    "TEAMS_WEBHOOK_URL": "<your-teams-incoming-webhook-url>",
+
+    "ALERT_EMAIL_ENABLED": "false",
+    "ALERT_EMAIL_FROM": "dmarc-reports@gieselman.com",
+    "ALERT_EMAIL_TO": "matt@gieselman.com",
+
+    "TIMER_SCHEDULE_CRON": "0 */30 * * * *"
+  }
+}

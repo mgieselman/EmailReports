@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feedback>
+  <report_metadata>
+    <org_name>microsoft.com</org_name>
+    <report_id>multi-auth-001</report_id>
+    <date_range><begin>1710460800</begin><end>1710547200</end></date_range>
+  </report_metadata>
+  <policy_published>
+    <domain>gieselman.com</domain>
+    <p>quarantine</p>
+  </policy_published>
+  <record>
+    <row>
+      <source_ip>40.107.22.55</source_ip>
+      <count>42</count>
+      <policy_evaluated>
+        <disposition>none</disposition>
+        <dkim>pass</dkim>
+        <spf>fail</spf>
+      </policy_evaluated>
+    </row>
+    <identifiers>
+      <header_from>gieselman.com</header_from>
+    </identifiers>
+    <auth_results>
+      <dkim><domain>gieselman.com</domain><result>pass</result></dkim>
+      <dkim><domain>onmicrosoft.com</domain><result>pass</result></dkim>
+      <spf><domain>gieselman.com</domain><result>fail</result></spf>
+    </auth_results>
+  </record>
+  <record>
+    <row>
+      <source_ip>10.0.0.1</source_ip>
+      <count>5</count>
+      <policy_evaluated>
+        <disposition>none</disposition>
+        <dkim>pass</dkim>
+        <spf>pass</spf>
+      </policy_evaluated>
+    </row>
+    <identifiers>
+      <header_from>gieselman.com</header_from>
+      <envelope_from>gieselman.com</envelope_from>
+    </identifiers>
+  </record>
+</feedback>

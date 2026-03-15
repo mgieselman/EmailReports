@@ -1,0 +1,29 @@
+{
+  "organization-name": "google.com",
+  "report-id": "2024-03-15T00:00:00Z_gieselman.com",
+  "date-range": {
+    "start-datetime": "2024-03-15T00:00:00Z",
+    "end-datetime": "2024-03-16T00:00:00Z"
+  },
+  "policies": [
+    {
+      "policy": {
+        "policy-type": "sts",
+        "policy-domain": "gieselman.com"
+      },
+      "summary": {
+        "total-successful-session-count": 485,
+        "total-failure-session-count": 2
+      },
+      "failure-details": [
+        {
+          "result-type": "certificate-expired",
+          "sending-mta-ip": "209.85.220.41",
+          "receiving-mx-hostname": "mail.gieselman.com",
+          "failed-session-count": 2,
+          "failure-reason-code": "Certificate has expired"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "org_name": "proofpoint.com",
+  "report_id": "tlsrpt-underscore-001",
+  "date_range": {
+    "start_datetime": "2024-03-15",
+    "end_datetime": "2024-03-16"
+  },
+  "policies": [
+    {
+      "policy": {
+        "policy_type": "sts",
+        "policy_domain": "gieselman.com"
+      },
+      "summary": {
+        "total_successful_session_count": 100,
+        "total_failure_session_count": 15
+      },
+      "failure_details": [
+        {
+          "result_type": "starttls-not-supported",
+          "sending_mta_ip": "10.0.0.1",
+          "receiving_mx_hostname": "mail.gieselman.com",
+          "failed_session_count": 15,
+          "failure_reason_code": "STARTTLS not offered"
+        }
+      ]
+    }
+  ]
+}

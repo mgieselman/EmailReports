@@ -1,0 +1,57 @@
+name: Deploy to Azure Functions
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest pytest-cov
+
+      - name: Run tests
+        run: pytest tests/ --cov --cov-report=term-missing -W error::DeprecationWarning
+        env:
+          AZURE_TENANT_ID: test
+          AZURE_CLIENT_ID: test
+          AZURE_CLIENT_SECRET: test
+          REPORT_MAILBOX: test@test.com
+          MAIL_FOLDER: ""
+          DMARC_ALIAS: dmarc@test.com
+          TLSRPT_ALIAS: tls@test.com
+          TEAMS_WEBHOOK_URL: ""
+          ALERT_EMAIL_ENABLED: "false"
+          ALERT_EMAIL_FROM: test@test.com
+          ALERT_EMAIL_TO: test@test.com
+          TIMER_SCHEDULE_CRON: "0 */30 * * * *"
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Deploy to Azure Functions
+        uses: Azure/functions-action@v1
+        with:
+          app-name: func-emailreports-prod
+          package: .
+          publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
+          scm-do-build-remote: true

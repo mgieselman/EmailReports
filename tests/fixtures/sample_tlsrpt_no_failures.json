@@ -1,0 +1,21 @@
+{
+  "organization-name": "microsoft.com",
+  "report-id": "tlsrpt-clean-001",
+  "date-range": {
+    "start-datetime": "2024-03-15T00:00:00Z",
+    "end-datetime": "2024-03-16T00:00:00Z"
+  },
+  "policies": [
+    {
+      "policy": {
+        "policy-type": "sts",
+        "policy-domain": "gieselman.com"
+      },
+      "summary": {
+        "total-successful-session-count": 200,
+        "total-failure-session-count": 0
+      },
+      "failure-details": []
+    }
+  ]
+}
