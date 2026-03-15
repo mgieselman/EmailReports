@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/mgieselman/EmailReports/actions/workflows/ci.yml/badge.svg)](https://github.com/mgieselman/EmailReports/actions/workflows/ci.yml)
 [![Deploy](https://github.com/mgieselman/EmailReports/actions/workflows/deploy.yml/badge.svg)](https://github.com/mgieselman/EmailReports/actions/workflows/deploy.yml)
-[![codecov](https://codecov.io/gh/mgieselman/EmailReports/graph/badge.svg)](https://codecov.io/gh/mgieselman/EmailReports)
+[![codecov](https://codecov.io/gh/mgieselman/EmailReports/graph/badge.svg?token=31b3846f-f1f2-4f1e-9c7f-5489bb430381)](https://codecov.io/gh/mgieselman/EmailReports)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
