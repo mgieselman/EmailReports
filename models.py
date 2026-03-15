@@ -3,21 +3,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from enum import Enum
-
+from datetime import UTC, datetime
+from enum import StrEnum
 
 # ---------------------------------------------------------------------------
 # DMARC
 # ---------------------------------------------------------------------------
 
-class DmarcDisposition(str, Enum):
+
+class DmarcDisposition(StrEnum):
     NONE = "none"
     QUARANTINE = "quarantine"
     REJECT = "reject"
 
 
-class DmarcResult(str, Enum):
+class DmarcResult(StrEnum):
     PASS = "pass"
     FAIL = "fail"
 
@@ -51,17 +51,15 @@ class DmarcReport:
 
     @property
     def failing_records(self) -> list[DmarcRecord]:
-        return [
-            r for r in self.records
-            if r.dkim_result == DmarcResult.FAIL and r.spf_result == DmarcResult.FAIL
-        ]
+        return [r for r in self.records if r.dkim_result == DmarcResult.FAIL and r.spf_result == DmarcResult.FAIL]
 
 
 # ---------------------------------------------------------------------------
 # TLS-RPT
 # ---------------------------------------------------------------------------
 
-class TlsResultType(str, Enum):
+
+class TlsResultType(StrEnum):
     SUCCESSFUL = "successful"
     FAILURE = "failure"
 
@@ -105,7 +103,8 @@ class TlsRptReport:
 # Alerting
 # ---------------------------------------------------------------------------
 
-class AlertSeverity(str, Enum):
+
+class AlertSeverity(StrEnum):
     INFO = "info"
     WARNING = "warning"
     CRITICAL = "critical"
@@ -117,4 +116,4 @@ class AlertSummary:
     severity: AlertSeverity
     body_markdown: str
     body_html: str = ""
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))

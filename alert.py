@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import requests
 
@@ -14,7 +13,6 @@ from models import (
     AlertSeverity,
     AlertSummary,
     DmarcReport,
-    DmarcResult,
     TlsRptReport,
 )
 
@@ -43,6 +41,7 @@ SEVERITY_BG = {
 # Shared HTML helpers
 # ---------------------------------------------------------------------------
 
+
 def _status_badge(result: str, pass_value: str = "pass") -> str:
     """Render a pass/fail pill badge."""
     is_pass = result.lower() == pass_value.lower()
@@ -51,7 +50,7 @@ def _status_badge(result: str, pass_value: str = "pass") -> str:
     label = result.upper()
     return (
         f'<span style="display:inline-block;padding:2px 10px;border-radius:12px;'
-        f'font-size:11px;font-weight:600;letter-spacing:0.5px;'
+        f"font-size:11px;font-weight:600;letter-spacing:0.5px;"
         f'background:{bg};color:{fg}">{label}</span>'
     )
 
@@ -67,8 +66,9 @@ def _stat_card(value: str, label: str, color: str = "#1e293b") -> str:
     )
 
 
-def _wrap_dashboard(title: str, severity: AlertSeverity, subtitle: str,
-                    stat_cards_html: str, table_html: str, timestamp: str) -> str:
+def _wrap_dashboard(
+    title: str, severity: AlertSeverity, subtitle: str, stat_cards_html: str, table_html: str, timestamp: str
+) -> str:
     """Wrap content in the full dashboard email layout."""
     sev_color = SEVERITY_COLOR[severity]
     sev_label = SEVERITY_LABEL[severity]
@@ -153,6 +153,7 @@ def _build_table(headers: list[str], rows: list[list[str]], highlight_col: int |
 # Build alert summaries from parsed reports
 # ---------------------------------------------------------------------------
 
+
 def build_dmarc_alert(report: DmarcReport) -> AlertSummary:
     failing = report.failing_records
     total = report.total_messages
@@ -180,7 +181,9 @@ def build_dmarc_alert(report: DmarcReport) -> AlertSummary:
         lines.append("| Source IP | Count | DKIM | SPF | Header From |")
         lines.append("|-----------|------:|------|-----|-------------|")
         for r in failing[:20]:
-            lines.append(f"| {r.source_ip} | {r.count} | {r.dkim_result.value} | {r.spf_result.value} | {r.header_from} |")
+            lines.append(
+                f"| {r.source_ip} | {r.count} | {r.dkim_result.value} | {r.spf_result.value} | {r.header_from} |"
+            )
     body_md = "\n".join(lines)
 
     # HTML dashboard email
@@ -202,14 +205,16 @@ def build_dmarc_alert(report: DmarcReport) -> AlertSummary:
 
     table_rows = []
     for r in report.records[:50]:
-        table_rows.append([
-            f'<span style="font-family:monospace;font-size:12px">{r.source_ip}</span>',
-            f'<span style="font-weight:600">{r.count}</span>',
-            _status_badge(r.dkim_result.value),
-            _status_badge(r.spf_result.value),
-            r.header_from,
-            f'<span style="font-size:11px;color:#64748b">{r.dkim_domain or "—"}</span>',
-        ])
+        table_rows.append(
+            [
+                f'<span style="font-family:monospace;font-size:12px">{r.source_ip}</span>',
+                f'<span style="font-weight:600">{r.count}</span>',
+                _status_badge(r.dkim_result.value),
+                _status_badge(r.spf_result.value),
+                r.header_from,
+                f'<span style="font-size:11px;color:#64748b">{r.dkim_domain or "—"}</span>',
+            ]
+        )
 
     table_html = _build_table(
         ["Source IP", "Count", "DKIM", "SPF", "Header From", "Auth Domain"],
@@ -222,7 +227,7 @@ def build_dmarc_alert(report: DmarcReport) -> AlertSummary:
         subtitle=subtitle,
         stat_cards_html=stat_cards,
         table_html=table_html,
-        timestamp=f"{datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC",
+        timestamp=f"{datetime.now(UTC):%Y-%m-%d %H:%M} UTC",
     )
 
     return AlertSummary(
@@ -258,7 +263,9 @@ def build_tlsrpt_alert(report: TlsRptReport) -> AlertSummary:
             lines.append("| Result | MX Host | Failed | Reason |")
             lines.append("|--------|---------|-------:|--------|")
             for fd in pol.failure_details[:20]:
-                lines.append(f"| {fd.result_type} | {fd.receiving_mx_hostname} | {fd.failed_session_count} | {fd.failure_reason_code} |")
+                lines.append(
+                    f"| {fd.result_type} | {fd.receiving_mx_hostname} | {fd.failed_session_count} | {fd.failure_reason_code} |"
+                )
     body_md = "\n".join(lines)
 
     # HTML dashboard email
@@ -280,23 +287,27 @@ def build_tlsrpt_alert(report: TlsRptReport) -> AlertSummary:
     for pol in report.policies:
         if pol.failure_details:
             for fd in pol.failure_details[:20]:
-                table_rows.append([
+                table_rows.append(
+                    [
+                        f'<span style="font-weight:600">{pol.policy_domain}</span>',
+                        pol.policy_type.upper(),
+                        _status_badge(fd.result_type, pass_value="successful"),
+                        fd.receiving_mx_hostname,
+                        f'<span style="font-weight:600">{fd.failed_session_count}</span>',
+                        f'<span style="font-size:11px;color:#64748b">{fd.failure_reason_code}</span>',
+                    ]
+                )
+        else:
+            table_rows.append(
+                [
                     f'<span style="font-weight:600">{pol.policy_domain}</span>',
                     pol.policy_type.upper(),
-                    _status_badge(fd.result_type, pass_value="successful"),
-                    fd.receiving_mx_hostname,
-                    f'<span style="font-weight:600">{fd.failed_session_count}</span>',
-                    f'<span style="font-size:11px;color:#64748b">{fd.failure_reason_code}</span>',
-                ])
-        else:
-            table_rows.append([
-                f'<span style="font-weight:600">{pol.policy_domain}</span>',
-                pol.policy_type.upper(),
-                _status_badge("successful"),
-                "—",
-                "0",
-                "—",
-            ])
+                    _status_badge("successful"),
+                    "—",
+                    "0",
+                    "—",
+                ]
+            )
 
     table_html = _build_table(
         ["Domain", "Policy", "Result", "MX Host", "Failed", "Reason"],
@@ -309,7 +320,7 @@ def build_tlsrpt_alert(report: TlsRptReport) -> AlertSummary:
         subtitle=subtitle,
         stat_cards_html=stat_cards,
         table_html=table_html,
-        timestamp=f"{datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC",
+        timestamp=f"{datetime.now(UTC):%Y-%m-%d %H:%M} UTC",
     )
 
     return AlertSummary(
@@ -324,6 +335,7 @@ def build_tlsrpt_alert(report: TlsRptReport) -> AlertSummary:
 # Delivery
 # ---------------------------------------------------------------------------
 
+
 def send_teams_alert(alert: AlertSummary) -> None:
     webhook_url = os.environ.get("TEAMS_WEBHOOK_URL", "")
     if not webhook_url:
@@ -332,35 +344,37 @@ def send_teams_alert(alert: AlertSummary) -> None:
 
     card = {
         "type": "message",
-        "attachments": [{
-            "contentType": "application/vnd.microsoft.card.adaptive",
-            "contentUrl": None,
-            "content": {
-                "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-                "type": "AdaptiveCard",
-                "version": "1.4",
-                "body": [
-                    {
-                        "type": "TextBlock",
-                        "size": "Large",
-                        "weight": "Bolder",
-                        "text": alert.title,
-                        "color": "Attention" if alert.severity != AlertSeverity.INFO else "Good",
-                    },
-                    {
-                        "type": "TextBlock",
-                        "text": alert.body_markdown,
-                        "wrap": True,
-                    },
-                    {
-                        "type": "TextBlock",
-                        "text": f"_{alert.timestamp:%Y-%m-%d %H:%M UTC}_",
-                        "isSubtle": True,
-                        "size": "Small",
-                    },
-                ],
-            },
-        }],
+        "attachments": [
+            {
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "contentUrl": None,
+                "content": {
+                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                    "type": "AdaptiveCard",
+                    "version": "1.4",
+                    "body": [
+                        {
+                            "type": "TextBlock",
+                            "size": "Large",
+                            "weight": "Bolder",
+                            "text": alert.title,
+                            "color": "Attention" if alert.severity != AlertSeverity.INFO else "Good",
+                        },
+                        {
+                            "type": "TextBlock",
+                            "text": alert.body_markdown,
+                            "wrap": True,
+                        },
+                        {
+                            "type": "TextBlock",
+                            "text": f"_{alert.timestamp:%Y-%m-%d %H:%M UTC}_",
+                            "isSubtle": True,
+                            "size": "Small",
+                        },
+                    ],
+                },
+            }
+        ],
     }
 
     resp = requests.post(webhook_url, json=card, timeout=30)

@@ -7,6 +7,30 @@ on:
     branches: [main]
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install tools
+        run: pip install ruff mypy bandit types-requests
+
+      - name: Ruff lint
+        run: ruff check .
+
+      - name: Ruff format
+        run: ruff format --check .
+
+      - name: Mypy
+        run: mypy *.py
+
+      - name: Bandit security scan
+        run: bandit -r . -x ./.venv,./tests -ll
+
   test:
     runs-on: ubuntu-latest
     steps:
@@ -36,3 +60,14 @@ jobs:
           ALERT_EMAIL_FROM: test@test.com
           ALERT_EMAIL_TO: test@test.com
           TIMER_SCHEDULE_CRON: "0 */30 * * * *"
+
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

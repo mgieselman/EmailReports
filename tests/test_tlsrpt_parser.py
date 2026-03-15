@@ -3,20 +3,17 @@
 from __future__ import annotations
 
 import base64
-import gzip
 import io
 import json
 import zipfile
-from datetime import datetime, timezone
-
-import pytest
+from datetime import UTC, datetime
 
 import tlsrpt_parser
-
 
 # ---------------------------------------------------------------------------
 # parse_attachment — format handling
 # ---------------------------------------------------------------------------
+
 
 class TestParseAttachmentFormats:
     def test_plain_json(self, tlsrpt_b64_json):
@@ -78,6 +75,7 @@ class TestParseAttachmentFormats:
 # parse_attachment — JSON content (hyphenated keys)
 # ---------------------------------------------------------------------------
 
+
 class TestParseJsonHyphenated:
     def test_metadata(self, tlsrpt_b64_json):
         report = tlsrpt_parser.parse_attachment("r.json", tlsrpt_b64_json)
@@ -86,8 +84,8 @@ class TestParseJsonHyphenated:
 
     def test_dates(self, tlsrpt_b64_json):
         report = tlsrpt_parser.parse_attachment("r.json", tlsrpt_b64_json)
-        assert report.date_begin == datetime(2024, 3, 15, tzinfo=timezone.utc)
-        assert report.date_end == datetime(2024, 3, 16, tzinfo=timezone.utc)
+        assert report.date_begin == datetime(2024, 3, 15, tzinfo=UTC)
+        assert report.date_end == datetime(2024, 3, 16, tzinfo=UTC)
 
     def test_policy_summary(self, tlsrpt_b64_json):
         report = tlsrpt_parser.parse_attachment("r.json", tlsrpt_b64_json)
@@ -117,6 +115,7 @@ class TestParseJsonHyphenated:
 # parse_attachment — underscore keys (some providers use these)
 # ---------------------------------------------------------------------------
 
+
 class TestParseJsonUnderscore:
     def test_underscore_keys_parsed(self, tlsrpt_underscore_json_bytes):
         b64 = base64.b64encode(tlsrpt_underscore_json_bytes).decode()
@@ -143,6 +142,7 @@ class TestParseJsonUnderscore:
 # No failures report
 # ---------------------------------------------------------------------------
 
+
 class TestNoFailures:
     def test_no_failures(self, tlsrpt_no_failures_json_bytes):
         b64 = base64.b64encode(tlsrpt_no_failures_json_bytes).decode()
@@ -157,10 +157,11 @@ class TestNoFailures:
 # Timestamp parsing edge cases
 # ---------------------------------------------------------------------------
 
+
 class TestTimestampParsing:
     def test_empty_string(self):
         result = tlsrpt_parser._parse_ts("")
-        assert result == datetime(1970, 1, 1, tzinfo=timezone.utc)
+        assert result == datetime(1970, 1, 1, tzinfo=UTC)
 
     def test_iso_format_z(self):
         result = tlsrpt_parser._parse_ts("2024-03-15T00:00:00Z")
@@ -173,17 +174,17 @@ class TestTimestampParsing:
 
     def test_invalid_returns_epoch(self):
         result = tlsrpt_parser._parse_ts("not-a-date")
-        assert result == datetime(1970, 1, 1, tzinfo=timezone.utc)
+        assert result == datetime(1970, 1, 1, tzinfo=UTC)
 
 
 # ---------------------------------------------------------------------------
 # Edge cases
 # ---------------------------------------------------------------------------
 
+
 class TestEdgeCases:
     def test_empty_policies(self):
-        doc = json.dumps({"organization-name": "test", "report-id": "1",
-                          "date-range": {}, "policies": []})
+        doc = json.dumps({"organization-name": "test", "report-id": "1", "date-range": {}, "policies": []})
         b64 = base64.b64encode(doc.encode()).decode()
         report = tlsrpt_parser.parse_attachment("r.json", b64)
         assert report.policies == []

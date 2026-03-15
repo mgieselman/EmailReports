@@ -72,11 +72,7 @@ def process_email_reports(timer: func.TimerRequest) -> None:
 def _get_to_addresses(msg: dict) -> set[str]:
     """Extract all To: addresses from a message as a lowercase set."""
     recipients = msg.get("toRecipients", [])
-    return {
-        r["emailAddress"]["address"].lower()
-        for r in recipients
-        if r.get("emailAddress", {}).get("address")
-    }
+    return {r["emailAddress"]["address"].lower() for r in recipients if r.get("emailAddress", {}).get("address")}
 
 
 def _parse_dmarc_attachments(attachments: list[dict], subject: str) -> list[AlertSummary]:

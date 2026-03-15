@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Token acquisition
 # ---------------------------------------------------------------------------
+
 
 class TestTokenAcquisition:
     def test_successful_token(self, mock_graph):
@@ -18,21 +18,23 @@ class TestTokenAcquisition:
 
     def test_failed_token_raises(self, monkeypatch):
         with patch("graph_client.msal") as mock_msal:
-            mock_msal.ConfidentialClientApplication.return_value \
-                .acquire_token_for_client.return_value = {
-                    "error": "invalid_client",
-                    "error_description": "Bad credentials",
-                }
+            mock_msal.ConfidentialClientApplication.return_value.acquire_token_for_client.return_value = {
+                "error": "invalid_client",
+                "error_description": "Bad credentials",
+            }
             from graph_client import GraphClient
+
             client = GraphClient()
             with pytest.raises(RuntimeError, match="Bad credentials"):
                 client._get_token()
 
     def test_failed_token_no_description(self, monkeypatch):
         with patch("graph_client.msal") as mock_msal:
-            mock_msal.ConfidentialClientApplication.return_value \
-                .acquire_token_for_client.return_value = {"error": "unknown"}
+            mock_msal.ConfidentialClientApplication.return_value.acquire_token_for_client.return_value = {
+                "error": "unknown"
+            }
             from graph_client import GraphClient
+
             client = GraphClient()
             with pytest.raises(RuntimeError):
                 client._get_token()
@@ -41,6 +43,7 @@ class TestTokenAcquisition:
 # ---------------------------------------------------------------------------
 # _get_folder_id
 # ---------------------------------------------------------------------------
+
 
 class TestGetFolderId:
     def test_folder_found(self, mock_graph):
@@ -52,6 +55,7 @@ class TestGetFolderId:
 
         # Call the real method
         from graph_client import GraphClient
+
         result = GraphClient._get_folder_id(mock_graph, "emailreports@gieselman.com", "Email Reports")
         assert result == "folder-123"
 
@@ -63,6 +67,7 @@ class TestGetFolderId:
         mock_graph._session.get.return_value = mock_resp
 
         from graph_client import GraphClient
+
         result = GraphClient._get_folder_id(mock_graph, "emailreports@gieselman.com", "NonExistent")
         assert result is None
 
@@ -70,6 +75,7 @@ class TestGetFolderId:
 # ---------------------------------------------------------------------------
 # list_unread_messages
 # ---------------------------------------------------------------------------
+
 
 class TestListUnreadMessages:
     def _setup_client(self, mock_graph, responses):
@@ -89,12 +95,14 @@ class TestListUnreadMessages:
 
     def test_no_messages(self, mock_graph):
         from graph_client import GraphClient
+
         client = self._setup_client(mock_graph, [{"value": []}])
         result = GraphClient.list_unread_messages(client, "mb@test.com")
         assert result == []
 
     def test_single_page(self, mock_graph):
         from graph_client import GraphClient
+
         msgs = [{"id": "1", "subject": "Test"}]
         client = self._setup_client(mock_graph, [{"value": msgs}])
         result = GraphClient.list_unread_messages(client, "mb@test.com")
@@ -103,6 +111,7 @@ class TestListUnreadMessages:
 
     def test_pagination(self, mock_graph):
         from graph_client import GraphClient
+
         page1 = {"value": [{"id": "1"}], "@odata.nextLink": "https://graph.microsoft.com/next"}
         page2 = {"value": [{"id": "2"}]}
         client = self._setup_client(mock_graph, [page1, page2])
@@ -111,6 +120,7 @@ class TestListUnreadMessages:
 
     def test_folder_specified_and_found(self, mock_graph):
         from graph_client import GraphClient
+
         mock_graph._session = MagicMock()
         mock_resp = MagicMock()
         mock_resp.json.return_value = {"value": []}
@@ -126,6 +136,7 @@ class TestListUnreadMessages:
 
     def test_subject_filter_appended(self, mock_graph):
         from graph_client import GraphClient
+
         mock_graph._session = MagicMock()
         mock_resp = MagicMock()
         mock_resp.json.return_value = {"value": []}
@@ -141,6 +152,7 @@ class TestListUnreadMessages:
 
     def test_folder_specified_not_found_falls_back(self, mock_graph):
         from graph_client import GraphClient
+
         mock_graph._session = MagicMock()
         mock_resp = MagicMock()
         mock_resp.json.return_value = {"value": []}
@@ -160,9 +172,11 @@ class TestListUnreadMessages:
 # get_attachments
 # ---------------------------------------------------------------------------
 
+
 class TestGetAttachments:
     def test_returns_attachments(self, mock_graph):
         from graph_client import GraphClient
+
         mock_resp = MagicMock()
         mock_resp.json.return_value = {"value": [{"id": "att-1", "name": "report.xml"}]}
         mock_resp.raise_for_status = MagicMock()
@@ -176,6 +190,7 @@ class TestGetAttachments:
 
     def test_no_attachments(self, mock_graph):
         from graph_client import GraphClient
+
         mock_resp = MagicMock()
         mock_resp.json.return_value = {"value": []}
         mock_resp.raise_for_status = MagicMock()
@@ -191,9 +206,11 @@ class TestGetAttachments:
 # mark_as_read
 # ---------------------------------------------------------------------------
 
+
 class TestMarkAsRead:
     def test_sends_patch(self, mock_graph):
         from graph_client import GraphClient
+
         mock_resp = MagicMock()
         mock_resp.raise_for_status = MagicMock()
         mock_graph._session = MagicMock()
@@ -210,9 +227,11 @@ class TestMarkAsRead:
 # send_mail
 # ---------------------------------------------------------------------------
 
+
 class TestSendMail:
     def test_sends_post(self, mock_graph):
         from graph_client import GraphClient
+
         mock_resp = MagicMock()
         mock_resp.raise_for_status = MagicMock()
         mock_graph._session = MagicMock()

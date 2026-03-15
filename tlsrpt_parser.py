@@ -8,7 +8,7 @@ import json
 import logging
 import zipfile
 from base64 import b64decode
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from models import TlsFailureDetail, TlsPolicy, TlsRptReport
 
@@ -68,24 +68,30 @@ def _parse_json(data: bytes) -> TlsRptReport:
         summary = pol.get("summary", {})
         failure_details: list[TlsFailureDetail] = []
         for fd in pol.get("failure-details", pol.get("failure_details", [])):
-            failure_details.append(TlsFailureDetail(
-                result_type=fd.get("result-type", fd.get("result_type", "")),
-                sending_mta_ip=fd.get("sending-mta-ip", fd.get("sending_mta_ip", "")),
-                receiving_mx_hostname=fd.get("receiving-mx-hostname", fd.get("receiving_mx_hostname", "")),
-                failed_session_count=fd.get("failed-session-count", fd.get("failed_session_count", 0)),
-                failure_reason_code=fd.get("failure-reason-code", fd.get("failure_reason_code", "")),
-            ))
+            failure_details.append(
+                TlsFailureDetail(
+                    result_type=fd.get("result-type", fd.get("result_type", "")),
+                    sending_mta_ip=fd.get("sending-mta-ip", fd.get("sending_mta_ip", "")),
+                    receiving_mx_hostname=fd.get("receiving-mx-hostname", fd.get("receiving_mx_hostname", "")),
+                    failed_session_count=fd.get("failed-session-count", fd.get("failed_session_count", 0)),
+                    failure_reason_code=fd.get("failure-reason-code", fd.get("failure_reason_code", "")),
+                )
+            )
 
         policy_el = pol.get("policy", {})
-        policies.append(TlsPolicy(
-            policy_type=policy_el.get("policy-type", policy_el.get("policy_type", "")),
-            policy_domain=policy_el.get("policy-domain", policy_el.get("policy_domain", [None])),
-            successful_session_count=summary.get("total-successful-session-count",
-                                                  summary.get("total_successful_session_count", 0)),
-            failed_session_count=summary.get("total-failure-session-count",
-                                              summary.get("total_failure_session_count", 0)),
-            failure_details=failure_details,
-        ))
+        policies.append(
+            TlsPolicy(
+                policy_type=policy_el.get("policy-type", policy_el.get("policy_type", "")),
+                policy_domain=policy_el.get("policy-domain", policy_el.get("policy_domain", [None])),
+                successful_session_count=summary.get(
+                    "total-successful-session-count", summary.get("total_successful_session_count", 0)
+                ),
+                failed_session_count=summary.get(
+                    "total-failure-session-count", summary.get("total_failure_session_count", 0)
+                ),
+                failure_details=failure_details,
+            )
+        )
 
     return TlsRptReport(
         org_name=org_name,
@@ -98,10 +104,10 @@ def _parse_json(data: bytes) -> TlsRptReport:
 
 def _parse_ts(value: str) -> datetime:
     if not value:
-        return datetime.fromtimestamp(0, tz=timezone.utc)
+        return datetime.fromtimestamp(0, tz=UTC)
     for fmt in ("%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%d"):
         try:
-            return datetime.strptime(value, fmt).replace(tzinfo=timezone.utc)
+            return datetime.strptime(value, fmt).replace(tzinfo=UTC)
         except ValueError:
             continue
-    return datetime.fromtimestamp(0, tz=timezone.utc)
+    return datetime.fromtimestamp(0, tz=UTC)

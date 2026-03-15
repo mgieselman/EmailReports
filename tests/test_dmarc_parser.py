@@ -3,19 +3,16 @@
 from __future__ import annotations
 
 import base64
-import gzip
 import io
 import zipfile
-
-import pytest
 
 import dmarc_parser
 from models import DmarcDisposition, DmarcResult
 
-
 # ---------------------------------------------------------------------------
 # parse_attachment — format handling
 # ---------------------------------------------------------------------------
+
 
 class TestParseAttachmentFormats:
     def test_plain_xml(self, dmarc_b64_xml):
@@ -80,6 +77,7 @@ class TestParseAttachmentFormats:
 # ---------------------------------------------------------------------------
 # parse_attachment — XML content parsing
 # ---------------------------------------------------------------------------
+
 
 class TestParseXmlContent:
     def test_full_report_metadata(self, dmarc_b64_xml):
@@ -170,6 +168,7 @@ class TestParseMultiAuthXml:
 # ---------------------------------------------------------------------------
 # Edge cases
 # ---------------------------------------------------------------------------
+
 
 class TestEdgeCases:
     def test_missing_row_element_skipped(self):

@@ -17,7 +17,7 @@ import base64
 import gzip
 import json
 import os
-import sys
+
 
 # Load env vars from local.settings.json so this works outside func host
 def _load_local_settings():
@@ -28,6 +28,7 @@ def _load_local_settings():
         for k, v in data.get("Values", {}).items():
             if k not in os.environ:
                 os.environ[k] = v
+
 
 _load_local_settings()
 
@@ -95,35 +96,37 @@ SAMPLE_DMARC_XML = """\
 # ---------------------------------------------------------------------------
 # Sample TLS-RPT JSON
 # ---------------------------------------------------------------------------
-SAMPLE_TLSRPT_JSON = json.dumps({
-    "organization-name": "google.com",
-    "report-id": "tlsrpt-test-67890",
-    "date-range": {
-        "start-datetime": "2025-03-15T00:00:00Z",
-        "end-datetime": "2025-03-16T00:00:00Z",
-    },
-    "policies": [
-        {
-            "policy": {
-                "policy-type": "sts",
-                "policy-domain": "gieselman.com",
-            },
-            "summary": {
-                "total-successful-session-count": 485,
-                "total-failure-session-count": 2,
-            },
-            "failure-details": [
-                {
-                    "result-type": "certificate-expired",
-                    "sending-mta-ip": "209.85.220.41",
-                    "receiving-mx-hostname": "mail.gieselman.com",
-                    "failed-session-count": 2,
-                    "failure-reason-code": "Certificate has expired",
-                }
-            ],
-        }
-    ],
-})
+SAMPLE_TLSRPT_JSON = json.dumps(
+    {
+        "organization-name": "google.com",
+        "report-id": "tlsrpt-test-67890",
+        "date-range": {
+            "start-datetime": "2025-03-15T00:00:00Z",
+            "end-datetime": "2025-03-16T00:00:00Z",
+        },
+        "policies": [
+            {
+                "policy": {
+                    "policy-type": "sts",
+                    "policy-domain": "gieselman.com",
+                },
+                "summary": {
+                    "total-successful-session-count": 485,
+                    "total-failure-session-count": 2,
+                },
+                "failure-details": [
+                    {
+                        "result-type": "certificate-expired",
+                        "sending-mta-ip": "209.85.220.41",
+                        "receiving-mx-hostname": "mail.gieselman.com",
+                        "failed-session-count": 2,
+                        "failure-reason-code": "Certificate has expired",
+                    }
+                ],
+            }
+        ],
+    }
+)
 
 
 def main():
@@ -143,7 +146,8 @@ def main():
     print(f"  Period:   {dmarc_report.date_begin} – {dmarc_report.date_end}")
     print(f"  Records:  {len(dmarc_report.records)}")
     print(f"  Total:    {dmarc_report.total_messages} messages")
-    print(f"  Failing:  {len(dmarc_report.failing_records)} records ({sum(r.count for r in dmarc_report.failing_records)} messages)")
+    fail_msgs = sum(r.count for r in dmarc_report.failing_records)
+    print(f"  Failing:  {len(dmarc_report.failing_records)} records ({fail_msgs} messages)")
 
     dmarc_alert = alert.build_dmarc_alert(dmarc_report)
     print(f"  Severity: {dmarc_alert.severity.value}")

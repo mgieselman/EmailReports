@@ -5,10 +5,11 @@ from __future__ import annotations
 import gzip
 import io
 import logging
-import xml.etree.ElementTree as ET
 import zipfile
 from base64 import b64decode
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
+import defusedxml.ElementTree as ET
 
 from models import DmarcDisposition, DmarcRecord, DmarcReport, DmarcResult
 
@@ -57,8 +58,8 @@ def _parse_xml(data: bytes) -> DmarcReport:
     org_name = _text(meta, "org_name")
     report_id = _text(meta, "report_id")
     dr = meta.find("date_range") if meta is not None else None
-    date_begin = datetime.fromtimestamp(int(_text(dr, "begin", "0")), tz=timezone.utc)
-    date_end = datetime.fromtimestamp(int(_text(dr, "end", "0")), tz=timezone.utc)
+    date_begin = datetime.fromtimestamp(int(_text(dr, "begin", "0")), tz=UTC)
+    date_end = datetime.fromtimestamp(int(_text(dr, "end", "0")), tz=UTC)
 
     # -- policy published
     pp = root.find("policy_published")
@@ -93,17 +94,19 @@ def _parse_xml(data: bytes) -> DmarcReport:
             if spf_el is not None:
                 spf_domain = _text(spf_el, "domain")
 
-        records.append(DmarcRecord(
-            source_ip=source_ip,
-            count=count,
-            disposition=disposition,
-            dkim_result=dkim_result,
-            spf_result=spf_result,
-            header_from=header_from,
-            envelope_from=envelope_from,
-            dkim_domain=dkim_domain,
-            spf_domain=spf_domain,
-        ))
+        records.append(
+            DmarcRecord(
+                source_ip=source_ip,
+                count=count,
+                disposition=disposition,
+                dkim_result=dkim_result,
+                spf_result=spf_result,
+                header_from=header_from,
+                envelope_from=envelope_from,
+                dkim_domain=dkim_domain,
+                spf_domain=spf_domain,
+            )
+        )
 
     return DmarcReport(
         org_name=org_name,

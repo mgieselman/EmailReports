@@ -5,8 +5,6 @@ from __future__ import annotations
 import base64
 import gzip
 import io
-import json
-import os
 import sys
 import zipfile
 from pathlib import Path
@@ -23,6 +21,7 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures"
 # ---------------------------------------------------------------------------
 # Environment
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture(autouse=True)
 def _env_defaults(monkeypatch):
@@ -48,6 +47,7 @@ def _env_defaults(monkeypatch):
 # ---------------------------------------------------------------------------
 # Raw fixture loaders
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def dmarc_xml_bytes() -> bytes:
@@ -82,6 +82,7 @@ def tlsrpt_underscore_json_bytes() -> bytes:
 # ---------------------------------------------------------------------------
 # Encoding helpers (simulate Graph attachment contentBytes)
 # ---------------------------------------------------------------------------
+
 
 def _b64(data: bytes) -> str:
     return base64.b64encode(data).decode()
@@ -132,6 +133,7 @@ def tlsrpt_b64_zip(tlsrpt_json_bytes) -> str:
 # Mock Graph client
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def mock_graph():
     """Return a MagicMock of GraphClient with all methods stubbed."""
@@ -140,6 +142,7 @@ def mock_graph():
             "access_token": "fake-token-12345"
         }
         from graph_client import GraphClient
+
         client = GraphClient()
     client.list_unread_messages = MagicMock(return_value=[])
     client.get_attachments = MagicMock(return_value=[])

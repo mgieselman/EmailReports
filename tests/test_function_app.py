@@ -3,43 +3,47 @@
 from __future__ import annotations
 
 import base64
-import gzip
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from models import AlertSeverity
-
 
 # ---------------------------------------------------------------------------
 # _get_to_addresses
 # ---------------------------------------------------------------------------
 
+
 class TestGetToAddresses:
     def _get_fn(self):
         from function_app import _get_to_addresses
+
         return _get_to_addresses
 
     def test_normal_recipients(self):
         fn = self._get_fn()
-        msg = {"toRecipients": [
-            {"emailAddress": {"address": "dmarc-reports@gieselman.com"}},
-        ]}
+        msg = {
+            "toRecipients": [
+                {"emailAddress": {"address": "dmarc-reports@gieselman.com"}},
+            ]
+        }
         assert fn(msg) == {"dmarc-reports@gieselman.com"}
 
     def test_multiple_recipients(self):
         fn = self._get_fn()
-        msg = {"toRecipients": [
-            {"emailAddress": {"address": "a@test.com"}},
-            {"emailAddress": {"address": "b@test.com"}},
-        ]}
+        msg = {
+            "toRecipients": [
+                {"emailAddress": {"address": "a@test.com"}},
+                {"emailAddress": {"address": "b@test.com"}},
+            ]
+        }
         assert fn(msg) == {"a@test.com", "b@test.com"}
 
     def test_lowercase_normalization(self):
         fn = self._get_fn()
-        msg = {"toRecipients": [
-            {"emailAddress": {"address": "DMARC-Reports@Gieselman.COM"}},
-        ]}
+        msg = {
+            "toRecipients": [
+                {"emailAddress": {"address": "DMARC-Reports@Gieselman.COM"}},
+            ]
+        }
         assert fn(msg) == {"dmarc-reports@gieselman.com"}
 
     def test_missing_to_recipients(self):
@@ -58,10 +62,12 @@ class TestGetToAddresses:
 
     def test_deduplication(self):
         fn = self._get_fn()
-        msg = {"toRecipients": [
-            {"emailAddress": {"address": "a@test.com"}},
-            {"emailAddress": {"address": "a@test.com"}},
-        ]}
+        msg = {
+            "toRecipients": [
+                {"emailAddress": {"address": "a@test.com"}},
+                {"emailAddress": {"address": "a@test.com"}},
+            ]
+        }
         assert fn(msg) == {"a@test.com"}
 
 
@@ -69,9 +75,11 @@ class TestGetToAddresses:
 # _parse_dmarc_attachments
 # ---------------------------------------------------------------------------
 
+
 class TestParseDmarcAttachments:
     def _get_fn(self):
         from function_app import _parse_dmarc_attachments
+
         return _parse_dmarc_attachments
 
     def test_empty_attachments(self):
@@ -110,9 +118,11 @@ class TestParseDmarcAttachments:
 # _parse_tlsrpt_attachments
 # ---------------------------------------------------------------------------
 
+
 class TestParseTlsRptAttachments:
     def _get_fn(self):
         from function_app import _parse_tlsrpt_attachments
+
         return _parse_tlsrpt_attachments
 
     def test_empty_attachments(self):
@@ -141,6 +151,7 @@ class TestParseTlsRptAttachments:
 # process_email_reports — full orchestration
 # ---------------------------------------------------------------------------
 
+
 class TestProcessEmailReports:
     def _make_message(self, msg_id, to_address, has_attachments=True):
         return {
@@ -158,6 +169,7 @@ class TestProcessEmailReports:
         MockGraphClient.return_value = mock_client
 
         from function_app import process_email_reports
+
         timer = MagicMock()
         timer.past_due = False
         process_email_reports(timer)
@@ -174,6 +186,7 @@ class TestProcessEmailReports:
         MockGraphClient.return_value = mock_client
 
         from function_app import process_email_reports
+
         timer = MagicMock()
         timer.past_due = False
         process_email_reports(timer)
@@ -186,12 +199,11 @@ class TestProcessEmailReports:
         mock_client = MagicMock()
         msg = self._make_message("1", "dmarc-reports@gieselman.com")
         mock_client.list_unread_messages.return_value = [msg]
-        mock_client.get_attachments.return_value = [
-            {"name": "report.xml.gz", "contentBytes": dmarc_b64_gz}
-        ]
+        mock_client.get_attachments.return_value = [{"name": "report.xml.gz", "contentBytes": dmarc_b64_gz}]
         MockGraphClient.return_value = mock_client
 
         from function_app import process_email_reports
+
         timer = MagicMock()
         timer.past_due = False
         process_email_reports(timer)
@@ -206,12 +218,11 @@ class TestProcessEmailReports:
         mock_client = MagicMock()
         msg = self._make_message("1", "tls-reports@gieselman.com")
         mock_client.list_unread_messages.return_value = [msg]
-        mock_client.get_attachments.return_value = [
-            {"name": "report.json.gz", "contentBytes": tlsrpt_b64_gz}
-        ]
+        mock_client.get_attachments.return_value = [{"name": "report.json.gz", "contentBytes": tlsrpt_b64_gz}]
         MockGraphClient.return_value = mock_client
 
         from function_app import process_email_reports
+
         timer = MagicMock()
         timer.past_due = False
         process_email_reports(timer)
@@ -226,12 +237,11 @@ class TestProcessEmailReports:
         mock_client = MagicMock()
         msg = self._make_message("1", "other@gieselman.com")
         mock_client.list_unread_messages.return_value = [msg]
-        mock_client.get_attachments.return_value = [
-            {"name": "report.xml.gz", "contentBytes": dmarc_b64_gz}
-        ]
+        mock_client.get_attachments.return_value = [{"name": "report.xml.gz", "contentBytes": dmarc_b64_gz}]
         MockGraphClient.return_value = mock_client
 
         from function_app import process_email_reports
+
         timer = MagicMock()
         timer.past_due = False
         process_email_reports(timer)
@@ -248,6 +258,7 @@ class TestProcessEmailReports:
         MockGraphClient.return_value = mock_client
 
         from function_app import process_email_reports
+
         timer = MagicMock()
         timer.past_due = True
         process_email_reports(timer)
@@ -271,6 +282,7 @@ class TestProcessEmailReports:
         MockGraphClient.return_value = mock_client
 
         from function_app import process_email_reports
+
         timer = MagicMock()
         timer.past_due = False
         process_email_reports(timer)

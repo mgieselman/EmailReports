@@ -1,6 +1,6 @@
 """Tests for models.py — dataclass properties and enum values."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from models import (
     AlertSeverity,
@@ -9,15 +9,14 @@ from models import (
     DmarcRecord,
     DmarcReport,
     DmarcResult,
-    TlsFailureDetail,
     TlsPolicy,
     TlsRptReport,
 )
 
-
 # ---------------------------------------------------------------------------
 # DmarcReport
 # ---------------------------------------------------------------------------
+
 
 class TestDmarcReport:
     def _make_record(self, count=1, dkim="pass", spf="pass"):
@@ -34,8 +33,8 @@ class TestDmarcReport:
         return DmarcReport(
             org_name="test.com",
             report_id="test-1",
-            date_begin=datetime(2024, 1, 1, tzinfo=timezone.utc),
-            date_end=datetime(2024, 1, 2, tzinfo=timezone.utc),
+            date_begin=datetime(2024, 1, 1, tzinfo=UTC),
+            date_end=datetime(2024, 1, 2, tzinfo=UTC),
             domain="example.com",
             policy=DmarcDisposition.REJECT,
             records=records or [],
@@ -86,13 +85,14 @@ class TestDmarcReport:
 # TlsRptReport
 # ---------------------------------------------------------------------------
 
+
 class TestTlsRptReport:
     def _make_report(self, policies=None):
         return TlsRptReport(
             org_name="test.com",
             report_id="test-1",
-            date_begin=datetime(2024, 1, 1, tzinfo=timezone.utc),
-            date_end=datetime(2024, 1, 2, tzinfo=timezone.utc),
+            date_begin=datetime(2024, 1, 1, tzinfo=UTC),
+            date_end=datetime(2024, 1, 2, tzinfo=UTC),
             policies=policies or [],
         )
 
@@ -103,10 +103,8 @@ class TestTlsRptReport:
 
     def test_totals_sum_across_policies(self):
         policies = [
-            TlsPolicy(policy_type="sts", policy_domain="a.com",
-                       successful_session_count=100, failed_session_count=5),
-            TlsPolicy(policy_type="sts", policy_domain="b.com",
-                       successful_session_count=200, failed_session_count=10),
+            TlsPolicy(policy_type="sts", policy_domain="a.com", successful_session_count=100, failed_session_count=5),
+            TlsPolicy(policy_type="sts", policy_domain="b.com", successful_session_count=200, failed_session_count=10),
         ]
         report = self._make_report(policies)
         assert report.total_successful == 300
@@ -114,8 +112,7 @@ class TestTlsRptReport:
 
     def test_totals_no_failures(self):
         policies = [
-            TlsPolicy(policy_type="sts", policy_domain="a.com",
-                       successful_session_count=500, failed_session_count=0),
+            TlsPolicy(policy_type="sts", policy_domain="a.com", successful_session_count=500, failed_session_count=0),
         ]
         report = self._make_report(policies)
         assert report.total_failures == 0
@@ -125,6 +122,7 @@ class TestTlsRptReport:
 # ---------------------------------------------------------------------------
 # Enums
 # ---------------------------------------------------------------------------
+
 
 class TestEnums:
     def test_dmarc_disposition_values(self):
@@ -145,6 +143,7 @@ class TestEnums:
 # ---------------------------------------------------------------------------
 # AlertSummary defaults
 # ---------------------------------------------------------------------------
+
 
 class TestAlertSummary:
     def test_default_timestamp(self):

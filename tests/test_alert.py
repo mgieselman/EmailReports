@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 import alert
 from models import (
@@ -20,17 +18,17 @@ from models import (
     TlsRptReport,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _dmarc_report(records=None, policy=DmarcDisposition.REJECT):
     return DmarcReport(
         org_name="google.com",
         report_id="test-1",
-        date_begin=datetime(2024, 3, 15, tzinfo=timezone.utc),
-        date_end=datetime(2024, 3, 16, tzinfo=timezone.utc),
+        date_begin=datetime(2024, 3, 15, tzinfo=UTC),
+        date_end=datetime(2024, 3, 16, tzinfo=UTC),
         domain="gieselman.com",
         policy=policy,
         records=records or [],
@@ -39,10 +37,13 @@ def _dmarc_report(records=None, policy=DmarcDisposition.REJECT):
 
 def _dmarc_record(count=1, dkim="pass", spf="pass", source_ip="1.2.3.4"):
     return DmarcRecord(
-        source_ip=source_ip, count=count,
+        source_ip=source_ip,
+        count=count,
         disposition=DmarcDisposition.NONE,
-        dkim_result=DmarcResult(dkim), spf_result=DmarcResult(spf),
-        header_from="gieselman.com", dkim_domain="gieselman.com",
+        dkim_result=DmarcResult(dkim),
+        spf_result=DmarcResult(spf),
+        header_from="gieselman.com",
+        dkim_domain="gieselman.com",
     )
 
 
@@ -50,8 +51,8 @@ def _tls_report(policies=None):
     return TlsRptReport(
         org_name="google.com",
         report_id="tls-1",
-        date_begin=datetime(2024, 3, 15, tzinfo=timezone.utc),
-        date_end=datetime(2024, 3, 16, tzinfo=timezone.utc),
+        date_begin=datetime(2024, 3, 15, tzinfo=UTC),
+        date_end=datetime(2024, 3, 16, tzinfo=UTC),
         policies=policies or [],
     )
 
@@ -59,6 +60,7 @@ def _tls_report(policies=None):
 # ---------------------------------------------------------------------------
 # DMARC severity
 # ---------------------------------------------------------------------------
+
 
 class TestDmarcSeverity:
     def test_all_passing_is_info(self):
@@ -109,22 +111,26 @@ class TestDmarcSeverity:
 # TLS-RPT severity
 # ---------------------------------------------------------------------------
 
+
 class TestTlsRptSeverity:
     def test_no_failures_is_info(self):
-        policies = [TlsPolicy(policy_type="sts", policy_domain="a.com",
-                               successful_session_count=100, failed_session_count=0)]
+        policies = [
+            TlsPolicy(policy_type="sts", policy_domain="a.com", successful_session_count=100, failed_session_count=0)
+        ]
         result = alert.build_tlsrpt_alert(_tls_report(policies))
         assert result.severity == AlertSeverity.INFO
 
     def test_minor_failures_is_warning(self):
-        policies = [TlsPolicy(policy_type="sts", policy_domain="a.com",
-                               successful_session_count=100, failed_session_count=5)]
+        policies = [
+            TlsPolicy(policy_type="sts", policy_domain="a.com", successful_session_count=100, failed_session_count=5)
+        ]
         result = alert.build_tlsrpt_alert(_tls_report(policies))
         assert result.severity == AlertSeverity.WARNING
 
     def test_major_failures_is_critical(self):
-        policies = [TlsPolicy(policy_type="sts", policy_domain="a.com",
-                               successful_session_count=10, failed_session_count=5)]
+        policies = [
+            TlsPolicy(policy_type="sts", policy_domain="a.com", successful_session_count=10, failed_session_count=5)
+        ]
         result = alert.build_tlsrpt_alert(_tls_report(policies))
         assert result.severity == AlertSeverity.CRITICAL
 
@@ -133,8 +139,9 @@ class TestTlsRptSeverity:
         assert result.severity == AlertSeverity.INFO
 
     def test_all_failures_is_critical(self):
-        policies = [TlsPolicy(policy_type="sts", policy_domain="a.com",
-                               successful_session_count=0, failed_session_count=100)]
+        policies = [
+            TlsPolicy(policy_type="sts", policy_domain="a.com", successful_session_count=0, failed_session_count=100)
+        ]
         result = alert.build_tlsrpt_alert(_tls_report(policies))
         assert result.severity == AlertSeverity.CRITICAL
 
@@ -142,6 +149,7 @@ class TestTlsRptSeverity:
 # ---------------------------------------------------------------------------
 # DMARC HTML content
 # ---------------------------------------------------------------------------
+
 
 class TestDmarcHtmlContent:
     def test_contains_domain(self):
@@ -190,35 +198,53 @@ class TestDmarcHtmlContent:
 # TLS-RPT HTML content
 # ---------------------------------------------------------------------------
 
+
 class TestTlsRptHtmlContent:
     def test_contains_org_name(self):
-        policies = [TlsPolicy(policy_type="sts", policy_domain="gieselman.com",
-                               successful_session_count=100, failed_session_count=0)]
+        policies = [
+            TlsPolicy(
+                policy_type="sts", policy_domain="gieselman.com", successful_session_count=100, failed_session_count=0
+            )
+        ]
         result = alert.build_tlsrpt_alert(_tls_report(policies))
         assert "google.com" in result.body_html
 
     def test_contains_stat_cards(self):
-        policies = [TlsPolicy(policy_type="sts", policy_domain="gieselman.com",
-                               successful_session_count=100, failed_session_count=2)]
+        policies = [
+            TlsPolicy(
+                policy_type="sts", policy_domain="gieselman.com", successful_session_count=100, failed_session_count=2
+            )
+        ]
         result = alert.build_tlsrpt_alert(_tls_report(policies))
         assert "Total Sessions" in result.body_html
         assert "Successful" in result.body_html
         assert "Success Rate" in result.body_html
 
     def test_no_failure_details_shows_successful_badge(self):
-        policies = [TlsPolicy(policy_type="sts", policy_domain="gieselman.com",
-                               successful_session_count=100, failed_session_count=0)]
+        policies = [
+            TlsPolicy(
+                policy_type="sts", policy_domain="gieselman.com", successful_session_count=100, failed_session_count=0
+            )
+        ]
         result = alert.build_tlsrpt_alert(_tls_report(policies))
         assert "SUCCESSFUL" in result.body_html
 
     def test_failure_details_in_table(self):
-        fd = TlsFailureDetail(result_type="certificate-expired",
-                              receiving_mx_hostname="mail.gieselman.com",
-                              failed_session_count=2,
-                              failure_reason_code="Certificate expired")
-        policies = [TlsPolicy(policy_type="sts", policy_domain="gieselman.com",
-                               successful_session_count=100, failed_session_count=2,
-                               failure_details=[fd])]
+        fd = TlsFailureDetail(
+            result_type="certificate-expired",
+            receiving_mx_hostname="mail.gieselman.com",
+            failed_session_count=2,
+            failure_reason_code="Certificate expired",
+        )
+        policies = [
+            TlsPolicy(
+                policy_type="sts",
+                policy_domain="gieselman.com",
+                successful_session_count=100,
+                failed_session_count=2,
+                failure_details=[fd],
+            )
+        ]
         result = alert.build_tlsrpt_alert(_tls_report(policies))
         assert "certificate-expired" in result.body_html.lower()
         assert "mail.gieselman.com" in result.body_html
@@ -227,6 +253,7 @@ class TestTlsRptHtmlContent:
 # ---------------------------------------------------------------------------
 # Markdown output (for Teams)
 # ---------------------------------------------------------------------------
+
 
 class TestMarkdownOutput:
     def test_dmarc_markdown_contains_key_fields(self):
@@ -238,10 +265,15 @@ class TestMarkdownOutput:
         assert "Source IP" in result.body_markdown
 
     def test_tlsrpt_markdown_contains_key_fields(self):
-        policies = [TlsPolicy(policy_type="sts", policy_domain="gieselman.com",
-                               successful_session_count=100, failed_session_count=5,
-                               failure_details=[TlsFailureDetail(
-                                   result_type="test", failed_session_count=5)])]
+        policies = [
+            TlsPolicy(
+                policy_type="sts",
+                policy_domain="gieselman.com",
+                successful_session_count=100,
+                failed_session_count=5,
+                failure_details=[TlsFailureDetail(result_type="test", failed_session_count=5)],
+            )
+        ]
         result = alert.build_tlsrpt_alert(_tls_report(policies))
         assert "**Org:**" in result.body_markdown
         assert "**Successful sessions:**" in result.body_markdown
@@ -251,6 +283,7 @@ class TestMarkdownOutput:
 # ---------------------------------------------------------------------------
 # send_teams_alert
 # ---------------------------------------------------------------------------
+
 
 class TestSendTeamsAlert:
     def test_skips_when_no_webhook(self, monkeypatch):
@@ -294,6 +327,7 @@ class TestSendTeamsAlert:
 # send_email_alert
 # ---------------------------------------------------------------------------
 
+
 class TestSendEmailAlert:
     def test_disabled_by_default(self, mock_graph, monkeypatch):
         monkeypatch.setenv("ALERT_EMAIL_ENABLED", "false")
@@ -305,15 +339,13 @@ class TestSendEmailAlert:
         monkeypatch.setenv("ALERT_EMAIL_ENABLED", "true")
         monkeypatch.setenv("ALERT_EMAIL_FROM", "from@test.com")
         monkeypatch.setenv("ALERT_EMAIL_TO", "to@test.com")
-        a = AlertSummary(title="Test", severity=AlertSeverity.INFO, body_markdown="m",
-                         body_html="<p>html</p>")
+        a = AlertSummary(title="Test", severity=AlertSeverity.INFO, body_markdown="m", body_html="<p>html</p>")
         alert.send_email_alert(a, mock_graph)
         mock_graph.send_mail.assert_called_once_with("from@test.com", "to@test.com", "Test", "<p>html</p>")
 
     def test_case_insensitive_enabled(self, mock_graph, monkeypatch):
         monkeypatch.setenv("ALERT_EMAIL_ENABLED", "TRUE")
-        a = AlertSummary(title="Test", severity=AlertSeverity.INFO, body_markdown="m",
-                         body_html="<p>html</p>")
+        a = AlertSummary(title="Test", severity=AlertSeverity.INFO, body_markdown="m", body_html="<p>html</p>")
         alert.send_email_alert(a, mock_graph)
         mock_graph.send_mail.assert_called_once()
 
@@ -321,6 +353,7 @@ class TestSendEmailAlert:
 # ---------------------------------------------------------------------------
 # HTML helpers
 # ---------------------------------------------------------------------------
+
 
 class TestHtmlHelpers:
     def test_status_badge_pass(self):
