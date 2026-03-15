@@ -288,3 +288,118 @@ class TestProcessEmailReports:
         process_email_reports(timer)
 
         assert mock_client.mark_as_read.call_count == 3
+
+    @patch("function_app.alert")
+    @patch("function_app.GraphClient")
+    def test_immediate_delete(self, MockGraphClient, mock_alert, monkeypatch, dmarc_b64_gz):
+        monkeypatch.setenv("DELETE_AFTER_DAYS", "0")
+        mock_client = MagicMock()
+        msg = self._make_message("1", "dmarc-reports@gieselman.com")
+        mock_client.list_unread_messages.return_value = [msg]
+        mock_client.get_attachments.return_value = [{"name": "r.xml.gz", "contentBytes": dmarc_b64_gz}]
+        MockGraphClient.return_value = mock_client
+
+        from function_app import process_email_reports
+
+        timer = MagicMock()
+        timer.past_due = False
+        process_email_reports(timer)
+
+        mock_client.delete_message.assert_called_once_with("emailreports@gieselman.com", "1")
+
+    @patch("function_app.alert")
+    @patch("function_app.GraphClient")
+    def test_no_delete_when_minus_one(self, MockGraphClient, mock_alert, monkeypatch, dmarc_b64_gz):
+        monkeypatch.setenv("DELETE_AFTER_DAYS", "-1")
+        mock_client = MagicMock()
+        msg = self._make_message("1", "dmarc-reports@gieselman.com")
+        mock_client.list_unread_messages.return_value = [msg]
+        mock_client.get_attachments.return_value = [{"name": "r.xml.gz", "contentBytes": dmarc_b64_gz}]
+        MockGraphClient.return_value = mock_client
+
+        from function_app import process_email_reports
+
+        timer = MagicMock()
+        timer.past_due = False
+        process_email_reports(timer)
+
+        mock_client.delete_message.assert_not_called()
+
+    @patch("function_app.alert")
+    @patch("function_app.GraphClient")
+    def test_deferred_delete(self, MockGraphClient, mock_alert, monkeypatch):
+        monkeypatch.setenv("DELETE_AFTER_DAYS", "30")
+        mock_client = MagicMock()
+        mock_client.list_unread_messages.return_value = []
+        mock_client.list_read_messages_older_than.return_value = [
+            {"id": "old-1", "subject": "old report"},
+            {"id": "old-2", "subject": "old report 2"},
+        ]
+        MockGraphClient.return_value = mock_client
+
+        from function_app import process_email_reports
+
+        timer = MagicMock()
+        timer.past_due = False
+        process_email_reports(timer)
+
+        assert mock_client.delete_message.call_count == 2
+        mock_client.list_read_messages_older_than.assert_called_once_with("emailreports@gieselman.com", 30, folder=None)
+
+    @patch("function_app.alert")
+    @patch("function_app.GraphClient")
+    def test_move_processed_to_folder(self, MockGraphClient, mock_alert, monkeypatch, dmarc_b64_gz):
+        monkeypatch.setenv("DELETE_AFTER_DAYS", "-1")
+        monkeypatch.setenv("MOVE_PROCESSED_TO", "Processed")
+        mock_client = MagicMock()
+        msg = self._make_message("1", "dmarc-reports@gieselman.com")
+        mock_client.list_unread_messages.return_value = [msg]
+        mock_client.get_attachments.return_value = [{"name": "r.xml.gz", "contentBytes": dmarc_b64_gz}]
+        MockGraphClient.return_value = mock_client
+
+        from function_app import process_email_reports
+
+        timer = MagicMock()
+        timer.past_due = False
+        process_email_reports(timer)
+
+        mock_client.move_message.assert_called_once_with("emailreports@gieselman.com", "1", "Processed")
+        mock_client.delete_message.assert_not_called()
+
+    @patch("function_app.alert")
+    @patch("function_app.GraphClient")
+    def test_immediate_delete_skips_move(self, MockGraphClient, mock_alert, monkeypatch, dmarc_b64_gz):
+        """When DELETE_AFTER_DAYS=0, delete takes priority over move."""
+        monkeypatch.setenv("DELETE_AFTER_DAYS", "0")
+        monkeypatch.setenv("MOVE_PROCESSED_TO", "Processed")
+        mock_client = MagicMock()
+        msg = self._make_message("1", "dmarc-reports@gieselman.com")
+        mock_client.list_unread_messages.return_value = [msg]
+        mock_client.get_attachments.return_value = [{"name": "r.xml.gz", "contentBytes": dmarc_b64_gz}]
+        MockGraphClient.return_value = mock_client
+
+        from function_app import process_email_reports
+
+        timer = MagicMock()
+        timer.past_due = False
+        process_email_reports(timer)
+
+        mock_client.delete_message.assert_called_once()
+        mock_client.move_message.assert_not_called()
+
+    @patch("function_app.alert")
+    @patch("function_app.GraphClient")
+    def test_generic_webhook_called(self, MockGraphClient, mock_alert, dmarc_b64_gz):
+        mock_client = MagicMock()
+        msg = self._make_message("1", "dmarc-reports@gieselman.com")
+        mock_client.list_unread_messages.return_value = [msg]
+        mock_client.get_attachments.return_value = [{"name": "r.xml.gz", "contentBytes": dmarc_b64_gz}]
+        MockGraphClient.return_value = mock_client
+
+        from function_app import process_email_reports
+
+        timer = MagicMock()
+        timer.past_due = False
+        process_email_reports(timer)
+
+        mock_alert.send_generic_webhook.assert_called()

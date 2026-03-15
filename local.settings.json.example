@@ -13,11 +13,15 @@
     "DMARC_ALIAS": "dmarc-reports@gieselman.com",
     "TLSRPT_ALIAS": "tls-reports@gieselman.com",
 
-    "TEAMS_WEBHOOK_URL": "<your-teams-incoming-webhook-url>",
+    "TEAMS_WEBHOOK_URL": "",
+    "GENERIC_WEBHOOK_URL": "",
 
     "ALERT_EMAIL_ENABLED": "false",
-    "ALERT_EMAIL_FROM": "dmarc-reports@gieselman.com",
-    "ALERT_EMAIL_TO": "matt@gieselman.com",
+    "ALERT_EMAIL_FROM": "emailreports@yourdomain.com",
+    "ALERT_EMAIL_TO": "admin@yourdomain.com",
+
+    "DELETE_AFTER_DAYS": "-1",
+    "MOVE_PROCESSED_TO": "",
 
     "TIMER_SCHEDULE_CRON": "0 */30 * * * *"
   }

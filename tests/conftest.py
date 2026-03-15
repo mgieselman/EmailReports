@@ -38,6 +38,9 @@ def _env_defaults(monkeypatch):
         "ALERT_EMAIL_ENABLED": "false",
         "ALERT_EMAIL_FROM": "emailreports@gieselman.com",
         "ALERT_EMAIL_TO": "matt@gieselman.com",
+        "GENERIC_WEBHOOK_URL": "",
+        "DELETE_AFTER_DAYS": "-1",
+        "MOVE_PROCESSED_TO": "",
         "TIMER_SCHEDULE_CRON": "0 */30 * * * *",
     }
     for k, v in defaults.items():
@@ -147,5 +150,8 @@ def mock_graph():
     client.list_unread_messages = MagicMock(return_value=[])
     client.get_attachments = MagicMock(return_value=[])
     client.mark_as_read = MagicMock()
+    client.delete_message = MagicMock()
+    client.move_message = MagicMock()
+    client.list_read_messages_older_than = MagicMock(return_value=[])
     client.send_mail = MagicMock()
     return client

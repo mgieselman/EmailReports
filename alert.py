@@ -339,7 +339,7 @@ def build_tlsrpt_alert(report: TlsRptReport) -> AlertSummary:
 def send_teams_alert(alert: AlertSummary) -> None:
     webhook_url = os.environ.get("TEAMS_WEBHOOK_URL", "")
     if not webhook_url:
-        logger.warning("TEAMS_WEBHOOK_URL not set; skipping Teams notification")
+        logger.debug("TEAMS_WEBHOOK_URL not set; skipping Teams notification")
         return
 
     card = {
@@ -380,6 +380,24 @@ def send_teams_alert(alert: AlertSummary) -> None:
     resp = requests.post(webhook_url, json=card, timeout=30)
     resp.raise_for_status()
     logger.info("Teams alert sent: %s", alert.title)
+
+
+def send_generic_webhook(alert: AlertSummary) -> None:
+    """POST alert as JSON to a generic webhook URL (Slack, Discord, n8n, etc.)."""
+    webhook_url = os.environ.get("GENERIC_WEBHOOK_URL", "")
+    if not webhook_url:
+        return
+
+    payload = {
+        "title": alert.title,
+        "severity": alert.severity.value,
+        "body": alert.body_markdown,
+        "timestamp": alert.timestamp.isoformat(),
+    }
+
+    resp = requests.post(webhook_url, json=payload, timeout=30)
+    resp.raise_for_status()
+    logger.info("Generic webhook sent: %s", alert.title)
 
 
 def send_email_alert(alert: AlertSummary, graph: GraphClient) -> None:

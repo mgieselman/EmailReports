@@ -328,6 +328,33 @@ class TestSendTeamsAlert:
 # ---------------------------------------------------------------------------
 
 
+class TestSendGenericWebhook:
+    def test_skips_when_no_url(self, monkeypatch):
+        monkeypatch.setenv("GENERIC_WEBHOOK_URL", "")
+        a = AlertSummary(title="t", severity=AlertSeverity.INFO, body_markdown="m")
+        alert.send_generic_webhook(a)  # should not raise
+
+    def test_posts_json_payload(self, monkeypatch):
+        monkeypatch.setenv("GENERIC_WEBHOOK_URL", "https://hook.test/endpoint")
+        a = AlertSummary(title="Test Alert", severity=AlertSeverity.WARNING, body_markdown="body")
+        with patch("alert.requests.post") as mock_post:
+            mock_post.return_value = MagicMock(raise_for_status=MagicMock())
+            alert.send_generic_webhook(a)
+            mock_post.assert_called_once()
+            call_url = mock_post.call_args[0][0]
+            assert call_url == "https://hook.test/endpoint"
+            payload = mock_post.call_args[1]["json"]
+            assert payload["title"] == "Test Alert"
+            assert payload["severity"] == "warning"
+            assert payload["body"] == "body"
+            assert "timestamp" in payload
+
+
+# ---------------------------------------------------------------------------
+# send_email_alert
+# ---------------------------------------------------------------------------
+
+
 class TestSendEmailAlert:
     def test_disabled_by_default(self, mock_graph, monkeypatch):
         monkeypatch.setenv("ALERT_EMAIL_ENABLED", "false")

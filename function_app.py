@@ -30,9 +30,11 @@ def process_email_reports(timer: func.TimerRequest) -> None:
     graph = GraphClient()
 
     mailbox = os.environ["REPORT_MAILBOX"]
-    mail_folder = os.environ.get("MAIL_FOLDER", "Email Reports")
-    dmarc_alias = os.environ.get("DMARC_ALIAS", "dmarc-reports@gieselman.com").lower()
-    tlsrpt_alias = os.environ.get("TLSRPT_ALIAS", "tls-reports@gieselman.com").lower()
+    mail_folder = os.environ.get("MAIL_FOLDER", "")
+    dmarc_alias = os.environ.get("DMARC_ALIAS", "").lower()
+    tlsrpt_alias = os.environ.get("TLSRPT_ALIAS", "").lower()
+    delete_after_days = int(os.environ.get("DELETE_AFTER_DAYS", "-1"))
+    move_to_folder = os.environ.get("MOVE_PROCESSED_TO", "")
 
     messages = graph.list_unread_messages(mailbox, folder=mail_folder)
     logger.info("Mailbox %s: %d unread messages", mailbox, len(messages))
@@ -50,9 +52,9 @@ def process_email_reports(timer: func.TimerRequest) -> None:
 
         attachments = graph.get_attachments(mailbox, msg_id)
 
-        if dmarc_alias in to_addresses:
+        if dmarc_alias and dmarc_alias in to_addresses:
             alerts.extend(_parse_dmarc_attachments(attachments, subject))
-        elif tlsrpt_alias in to_addresses:
+        elif tlsrpt_alias and tlsrpt_alias in to_addresses:
             alerts.extend(_parse_tlsrpt_attachments(attachments, subject))
         else:
             # Try both parsers if we can't determine by recipient
@@ -62,11 +64,33 @@ def process_email_reports(timer: func.TimerRequest) -> None:
 
         graph.mark_as_read(mailbox, msg_id)
 
+        # Immediate deletion: delete right after processing
+        if delete_after_days == 0:
+            graph.delete_message(mailbox, msg_id)
+            logger.debug("Deleted message '%s' (immediate)", subject)
+        elif move_to_folder:
+            graph.move_message(mailbox, msg_id, move_to_folder)
+            logger.debug("Moved message '%s' to '%s'", subject, move_to_folder)
+
     for a in alerts:
         alert.send_teams_alert(a)
+        alert.send_generic_webhook(a)
         alert.send_email_alert(a, graph)
 
+    # Deferred cleanup: delete read messages older than N days
+    if delete_after_days > 0:
+        _cleanup_old_messages(graph, mailbox, mail_folder, delete_after_days)
+
     logger.info("Run complete — processed %d alert(s)", len(alerts))
+
+
+def _cleanup_old_messages(graph: GraphClient, mailbox: str, folder: str, days: int) -> None:
+    """Delete read messages older than *days* days."""
+    old_messages = graph.list_read_messages_older_than(mailbox, days, folder=folder or None)
+    if old_messages:
+        logger.info("Cleaning up %d read messages older than %d days", len(old_messages), days)
+    for msg in old_messages:
+        graph.delete_message(mailbox, msg["id"])
 
 
 def _get_to_addresses(msg: dict) -> set[str]:

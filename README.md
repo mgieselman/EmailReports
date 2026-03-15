@@ -145,10 +145,13 @@ az functionapp config appsettings set --name func-emailreports --resource-group 
   "MAIL_FOLDER=" \
   "DMARC_ALIAS=dmarc-reports@yourdomain.com" \
   "TLSRPT_ALIAS=tls-reports@yourdomain.com" \
-  "TEAMS_WEBHOOK_URL=<your-webhook-url>" \
+  "TEAMS_WEBHOOK_URL=" \
+  "GENERIC_WEBHOOK_URL=" \
   "ALERT_EMAIL_ENABLED=false" \
   "ALERT_EMAIL_FROM=emailreports@yourdomain.com" \
   "ALERT_EMAIL_TO=admin@yourdomain.com" \
+  "DELETE_AFTER_DAYS=-1" \
+  "MOVE_PROCESSED_TO=" \
   "TIMER_SCHEDULE_CRON=0 */30 * * * *"
 ```
 
@@ -188,11 +191,14 @@ func azure functionapp publish func-emailreports
 | `MAIL_FOLDER` | No | Folder name to read from (blank = Inbox) |
 | `DMARC_ALIAS` | Yes | Alias that receives DMARC reports |
 | `TLSRPT_ALIAS` | Yes | Alias that receives TLS-RPT reports |
-| `TEAMS_WEBHOOK_URL` | Yes | Teams incoming webhook URL |
-| `TIMER_SCHEDULE_CRON` | No | NCRONTAB schedule (default: `0 */30 * * * *`) |
+| `TEAMS_WEBHOOK_URL` | No | Teams incoming webhook URL (blank to disable) |
+| `GENERIC_WEBHOOK_URL` | No | HTTP POST endpoint for any webhook (Slack, Discord, n8n, etc.) |
 | `ALERT_EMAIL_ENABLED` | No | Set to `true` to enable email alerts |
 | `ALERT_EMAIL_FROM` | No | Sender address for email alerts |
 | `ALERT_EMAIL_TO` | No | Recipient address for email alerts |
+| `DELETE_AFTER_DAYS` | No | Delete read messages after N days (`0` = immediate, `-1` = never) |
+| `MOVE_PROCESSED_TO` | No | Move processed messages to this folder (ignored if deleting immediately) |
+| `TIMER_SCHEDULE_CRON` | No | NCRONTAB schedule (default: `0 */30 * * * *`) |
 
 ## Local Development
 

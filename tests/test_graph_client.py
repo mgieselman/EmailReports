@@ -207,6 +207,102 @@ class TestGetAttachments:
 # ---------------------------------------------------------------------------
 
 
+class TestDeleteMessage:
+    def test_sends_delete(self, mock_graph):
+        from graph_client import GraphClient
+
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_graph._session = MagicMock()
+        mock_graph._session.delete.return_value = mock_resp
+        type(mock_graph)._headers = PropertyMock(return_value={"Authorization": "Bearer fake"})
+
+        GraphClient.delete_message(mock_graph, "mb@test.com", "msg-1")
+        mock_graph._session.delete.assert_called_once()
+        call_url = mock_graph._session.delete.call_args[0][0]
+        assert "msg-1" in call_url
+
+
+class TestMoveMessage:
+    def test_moves_to_folder(self, mock_graph):
+        from graph_client import GraphClient
+
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_graph._session = MagicMock()
+        mock_graph._session.post.return_value = mock_resp
+        mock_graph._get_folder_id = MagicMock(return_value="folder-xyz")
+        type(mock_graph)._headers = PropertyMock(return_value={"Authorization": "Bearer fake"})
+
+        GraphClient.move_message(mock_graph, "mb@test.com", "msg-1", "Archive")
+        mock_graph._session.post.assert_called_once()
+        call_json = mock_graph._session.post.call_args[1]["json"]
+        assert call_json == {"destinationId": "folder-xyz"}
+
+    def test_skips_when_folder_not_found(self, mock_graph):
+        from graph_client import GraphClient
+
+        mock_graph._get_folder_id = MagicMock(return_value=None)
+        mock_graph._session = MagicMock()
+
+        GraphClient.move_message(mock_graph, "mb@test.com", "msg-1", "NonExistent")
+        mock_graph._session.post.assert_not_called()
+
+
+class TestListReadMessagesOlderThan:
+    def test_returns_old_messages(self, mock_graph):
+        from graph_client import GraphClient
+
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"value": [{"id": "old-1"}]}
+        mock_resp.raise_for_status = MagicMock()
+        mock_graph._session = MagicMock()
+        mock_graph._session.get.return_value = mock_resp
+        mock_graph._get_folder_id = MagicMock(return_value=None)
+        type(mock_graph)._headers = PropertyMock(return_value={"Authorization": "Bearer fake"})
+
+        result = GraphClient.list_read_messages_older_than(mock_graph, "mb@test.com", 30)
+        assert len(result) == 1
+        call_params = mock_graph._session.get.call_args[1]["params"]
+        assert "isRead eq true" in call_params["$filter"]
+        assert "receivedDateTime lt" in call_params["$filter"]
+
+    def test_with_folder_found(self, mock_graph):
+        from graph_client import GraphClient
+
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"value": []}
+        mock_resp.raise_for_status = MagicMock()
+        mock_graph._session = MagicMock()
+        mock_graph._session.get.return_value = mock_resp
+        mock_graph._get_folder_id = MagicMock(return_value="folder-abc")
+        type(mock_graph)._headers = PropertyMock(return_value={"Authorization": "Bearer fake"})
+
+        GraphClient.list_read_messages_older_than(mock_graph, "mb@test.com", 7, folder="Inbox")
+        call_url = mock_graph._session.get.call_args[0][0]
+        assert "mailFolders/folder-abc/messages" in call_url
+
+    def test_with_folder_not_found(self, mock_graph):
+        from graph_client import GraphClient
+
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"value": []}
+        mock_resp.raise_for_status = MagicMock()
+        mock_graph._session = MagicMock()
+        mock_graph._session.get.return_value = mock_resp
+        mock_graph._get_folder_id = MagicMock(return_value=None)
+        type(mock_graph)._headers = PropertyMock(return_value={"Authorization": "Bearer fake"})
+
+        GraphClient.list_read_messages_older_than(mock_graph, "mb@test.com", 7, folder="Missing")
+        call_url = mock_graph._session.get.call_args[0][0]
+        assert "mailFolders" not in call_url
+
+
+# ---------------------------------------------------------------------------
+# mark_as_read
+# ---------------------------------------------------------------------------
+
+
 class TestMarkAsRead:
     def test_sends_patch(self, mock_graph):
         from graph_client import GraphClient

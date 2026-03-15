@@ -110,6 +110,57 @@ class GraphClient:
         resp = self._session.patch(url, headers=self._headers, json={"isRead": True})
         resp.raise_for_status()
 
+    def delete_message(self, mailbox: str, message_id: str) -> None:
+        url = f"{GRAPH_BASE}/users/{mailbox}/messages/{message_id}"
+        resp = self._session.delete(url, headers=self._headers)
+        resp.raise_for_status()
+
+    def move_message(self, mailbox: str, message_id: str, destination_folder: str) -> None:
+        """Move a message to a folder by display name."""
+        folder_id = self._get_folder_id(mailbox, destination_folder)
+        if not folder_id:
+            logger.warning("Folder '%s' not found — skipping move for message %s", destination_folder, message_id)
+            return
+        url = f"{GRAPH_BASE}/users/{mailbox}/messages/{message_id}/move"
+        resp = self._session.post(url, headers=self._headers, json={"destinationId": folder_id})
+        resp.raise_for_status()
+
+    def list_read_messages_older_than(
+        self,
+        mailbox: str,
+        days: int,
+        folder: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return read messages older than *days* days."""
+        from datetime import UTC, datetime, timedelta
+
+        cutoff = (datetime.now(UTC) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        if folder:
+            folder_id = self._get_folder_id(mailbox, folder)
+            if folder_id:
+                url = f"{GRAPH_BASE}/users/{mailbox}/mailFolders/{folder_id}/messages"
+            else:
+                url = f"{GRAPH_BASE}/users/{mailbox}/messages"
+        else:
+            url = f"{GRAPH_BASE}/users/{mailbox}/messages"
+
+        params: dict[str, str] = {
+            "$filter": f"isRead eq true and receivedDateTime lt {cutoff}",
+            "$top": "50",
+            "$select": "id,subject,receivedDateTime",
+            "$orderby": "receivedDateTime asc",
+        }
+
+        messages: list[dict[str, Any]] = []
+        while url:
+            resp = self._session.get(url, headers=self._headers, params=params)
+            resp.raise_for_status()
+            data = resp.json()
+            messages.extend(data.get("value", []))
+            url = data.get("@odata.nextLink")
+            params = {}
+        return messages
+
     # -- send mail -----------------------------------------------------------
 
     def send_mail(self, from_address: str, to_address: str, subject: str, html_body: str) -> None:
