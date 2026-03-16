@@ -224,3 +224,8 @@ class TestEdgeCases:
         b64 = base64.b64encode(buf.getvalue()).decode()
         result = dmarc_parser.parse_attachment("report.zip", b64)
         assert result is None
+
+    def test_invalid_xml_returns_none(self):
+        b64 = base64.b64encode(b"this is not xml at all").decode()
+        result = dmarc_parser.parse_attachment("report.xml", b64)
+        assert result is None

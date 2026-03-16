@@ -24,7 +24,11 @@ def parse_attachment(name: str, content_bytes_b64: str) -> DmarcReport | None:
     xml_bytes = _extract_xml(name, raw)
     if xml_bytes is None:
         return None
-    return _parse_xml(xml_bytes)
+    try:
+        return _parse_xml(xml_bytes)
+    except ET.ParseError:
+        logger.debug("Failed to parse XML from %s", name)
+        return None
 
 
 def _extract_xml(filename: str, raw: bytes) -> bytes | None:
