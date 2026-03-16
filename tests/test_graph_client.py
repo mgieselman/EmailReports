@@ -199,9 +199,7 @@ class TestGetAttachments:
         from graph_client import GraphClient
 
         mock_resp = MagicMock()
-        mock_resp.json.return_value = {
-            "value": [{"id": "att-1", "name": "report.xml", "contentBytes": "AQID"}]
-        }
+        mock_resp.json.return_value = {"value": [{"id": "att-1", "name": "report.xml", "contentBytes": "AQID"}]}
         mock_resp.raise_for_status = MagicMock()
         mock_graph._session = MagicMock()
         mock_graph._session.get.return_value = mock_resp
