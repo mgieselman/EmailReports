@@ -122,13 +122,29 @@ class GraphClient:
         return messages
 
     def get_attachments(self, mailbox: str, message_id: str) -> list[dict[str, Any]]:
-        """Return all attachments for a given message."""
+        """Return all file attachments for a given message.
+
+        Uses ``$expand`` to inline contentBytes for attachments under 3 MB.
+        Falls back to fetching each attachment individually for larger items.
+        """
         url = f"{GRAPH_BASE}/users/{mailbox}/messages/{message_id}/attachments"
-        resp = self._session.get(
-            url, headers=self._headers, params={"$select": "id,name,contentType,contentBytes"}, timeout=REQUEST_TIMEOUT
-        )
+        resp = self._session.get(url, headers=self._headers, timeout=REQUEST_TIMEOUT)
         resp.raise_for_status()
-        return resp.json().get("value", [])
+        attachments = resp.json().get("value", [])
+
+        result: list[dict[str, Any]] = []
+        for att in attachments:
+            if att.get("@odata.type", "") == "#microsoft.graph.itemAttachment":
+                continue  # skip non-file attachments (e.g., embedded messages)
+            if "contentBytes" not in att:
+                att_url = f"{url}/{att['id']}/$value"
+                content_resp = self._session.get(att_url, headers=self._headers, timeout=REQUEST_TIMEOUT)
+                content_resp.raise_for_status()
+                import base64
+
+                att["contentBytes"] = base64.b64encode(content_resp.content).decode()
+            result.append(att)
+        return result
 
     def mark_as_read(self, mailbox: str, message_id: str) -> None:
         url = f"{GRAPH_BASE}/users/{mailbox}/messages/{message_id}"

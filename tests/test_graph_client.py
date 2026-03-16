@@ -195,11 +195,53 @@ class TestListUnreadMessages:
 
 
 class TestGetAttachments:
-    def test_returns_attachments(self, mock_graph):
+    def test_returns_attachments_with_inline_content(self, mock_graph):
         from graph_client import GraphClient
 
         mock_resp = MagicMock()
-        mock_resp.json.return_value = {"value": [{"id": "att-1", "name": "report.xml"}]}
+        mock_resp.json.return_value = {
+            "value": [{"id": "att-1", "name": "report.xml", "contentBytes": "AQID"}]
+        }
+        mock_resp.raise_for_status = MagicMock()
+        mock_graph._session = MagicMock()
+        mock_graph._session.get.return_value = mock_resp
+        type(mock_graph)._headers = PropertyMock(return_value={"Authorization": "Bearer fake"})
+
+        result = GraphClient.get_attachments(mock_graph, "mb@test.com", "msg-1")
+        assert len(result) == 1
+        assert result[0]["contentBytes"] == "AQID"
+
+    def test_fetches_content_when_not_inline(self, mock_graph):
+        from graph_client import GraphClient
+
+        list_resp = MagicMock()
+        list_resp.json.return_value = {"value": [{"id": "att-1", "name": "report.xml"}]}
+        list_resp.raise_for_status = MagicMock()
+
+        content_resp = MagicMock()
+        content_resp.content = b"<xml>data</xml>"
+        content_resp.raise_for_status = MagicMock()
+
+        mock_graph._session = MagicMock()
+        mock_graph._session.get.side_effect = [list_resp, content_resp]
+        type(mock_graph)._headers = PropertyMock(return_value={"Authorization": "Bearer fake"})
+
+        result = GraphClient.get_attachments(mock_graph, "mb@test.com", "msg-1")
+        assert len(result) == 1
+        import base64
+
+        assert base64.b64decode(result[0]["contentBytes"]) == b"<xml>data</xml>"
+
+    def test_skips_item_attachments(self, mock_graph):
+        from graph_client import GraphClient
+
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "value": [
+                {"id": "att-1", "name": "embedded.msg", "@odata.type": "#microsoft.graph.itemAttachment"},
+                {"id": "att-2", "name": "report.xml", "contentBytes": "AQID"},
+            ]
+        }
         mock_resp.raise_for_status = MagicMock()
         mock_graph._session = MagicMock()
         mock_graph._session.get.return_value = mock_resp
