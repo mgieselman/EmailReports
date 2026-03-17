@@ -11,7 +11,7 @@ Low-cost Azure Function that processes DMARC aggregate (RUA) and TLS-RPT reports
 
 ![DMARC email alert example](docs/report.png)
 
-Built for **small organizations (<200 users)** that want automated email security monitoring without the cost of a commercial DMARC service. Runs on the Azure Functions Consumption plan — effectively free for most tenants.
+Built for **small organizations (<200 users)** that want automated email security monitoring without the cost of a commercial DMARC service. Runs on the Azure Functions **Flex Consumption** plan — effectively free for most tenants.
 
 ## What it does
 
@@ -22,7 +22,7 @@ Built for **small organizations (<200 users)** that want automated email securit
 5. Calculates severity: **info** (all passing), **warning** (some failures), **critical** (>10% failure rate)
 6. Posts Adaptive Cards to a Teams channel via webhook
 7. Optionally sends HTML dashboard-style emails via Graph sendMail
-8. Marks all processed messages as read
+8. Marks processed messages as read, optionally moves or deletes them
 
 ## Architecture
 
@@ -43,8 +43,8 @@ Built for **small organizations (<200 users)** that want automated email securit
                     ┌────────────┼────────────┐
                     ▼            ▼             ▼
               ┌──────────┐ ┌──────────┐ ┌──────────┐
-              │  Teams   │ │  Email   │ │ Mark as  │
-              │  Webhook │ │  Alert   │ │  Read    │
+              │  Teams   │ │  Email   │ │ Webhook  │
+              │  Webhook │ │  Alert   │ │  (JSON)  │
               └──────────┘ └──────────┘ └──────────┘
 ```
 
@@ -52,10 +52,10 @@ Built for **small organizations (<200 users)** that want automated email securit
 
 ### Prerequisites
 
-- Azure subscription (Consumption plan, ~$0/mo for this workload)
+- Azure subscription (Flex Consumption plan, ~$0/mo for this workload)
 - Microsoft 365 tenant
-- Python 3.12
-- Azure CLI (`az`) and Azure Functions Core Tools (`func`)
+- Python 3.12+
+- Azure CLI (`az`)
 
 ### 1. Create the shared mailbox
 
@@ -119,16 +119,14 @@ az group create --name rg-emailreports --location <your-region>
 # Storage account
 az storage account create --name stemailreports --resource-group rg-emailreports --sku Standard_LRS
 
-# Function App
+# Function App (Flex Consumption)
 az functionapp create \
   --name func-emailreports \
   --resource-group rg-emailreports \
   --storage-account stemailreports \
-  --consumption-plan-location <your-region> \
+  --flexconsumption-location <your-region> \
   --runtime python \
-  --runtime-version 3.12 \
-  --functions-version 4 \
-  --os-type Linux
+  --runtime-version 3.12
 
 # Key Vault (store client secret here, not in app settings)
 az keyvault create --name kv-emailreports --resource-group rg-emailreports
@@ -169,21 +167,27 @@ az functionapp config appsettings set --name func-emailreports --resource-group 
 **Option A: GitHub Actions (recommended)**
 
 1. Fork this repo
-2. Get the publish profile:
+2. Create a service principal for deployment:
    ```bash
-   az functionapp deployment list-publishing-profiles --name func-emailreports --resource-group rg-emailreports --xml
+   az ad sp create-for-rbac \
+     --name "github-deploy-emailreports" \
+     --role Contributor \
+     --scopes "/subscriptions/<sub-id>/resourceGroups/rg-emailreports" \
+     --sdk-auth
    ```
-3. Add it as a GitHub secret named `AZURE_FUNCTIONAPP_PUBLISH_PROFILE`
+3. Add the JSON output as a GitHub secret named `AZURE_CREDENTIALS`
 4. Update `app-name` in `.github/workflows/deploy.yml` to match your Function App name
 5. Push to `main` — CI runs tests, then deploys automatically
 
 **Option B: Manual deploy**
 
 ```bash
-func azure functionapp publish func-emailreports
+pip install -r requirements.txt --target=".python_packages/lib/site-packages"
+zip -r deploy.zip . -x ".git/*" ".github/*" ".venv/*" "tests/*"
+az functionapp deploy --name func-emailreports --resource-group rg-emailreports --src-path deploy.zip --type zip
 ```
 
-### 6. Create the Teams webhook
+### 6. Create the Teams webhook (optional)
 
 1. In Teams, right-click the target channel
 2. Select **Workflows** > **Post to a channel when a webhook request is received**
@@ -240,7 +244,7 @@ python test_alert.py --email
 ├── alert.py                     # Severity calculation, HTML dashboard, Teams cards
 ├── models.py                    # Dataclasses: DmarcReport, TlsRptReport, AlertSummary
 ├── test_alert.py                # Manual test script for sending sample alerts
-├── tests/                       # 141 tests, 100% coverage
+├── tests/                       # 170 tests, 100% coverage
 │   ├── fixtures/                # Sample DMARC XML and TLS-RPT JSON
 │   ├── test_models.py
 │   ├── test_dmarc_parser.py
@@ -249,10 +253,11 @@ python test_alert.py --email
 │   ├── test_alert.py
 │   └── test_function_app.py
 ├── .github/workflows/
-│   ├── ci.yml                   # Tests on every push/PR
-│   └── deploy.yml               # Tests + deploy on push to main
+│   ├── ci.yml                   # Lint + test + gitleaks on every push/PR
+│   └── deploy.yml               # Lint + test + deploy on push to main
 ├── host.json
 ├── requirements.txt
+├── pyproject.toml               # Ruff, mypy, bandit config
 ├── local.settings.json.example
 └── .coveragerc
 ```
@@ -263,18 +268,11 @@ The function has three layers of failure detection, from fastest to most compreh
 
 ### 1. In-code error notifications (instant)
 
-If the function throws an unhandled exception, it catches the error and sends a **CRITICAL** alert with the traceback to your configured Teams webhook and/or generic webhook before re-raising. This gives you immediate visibility without needing to check the Azure Portal.
+If the function throws an unhandled exception, it catches the error and sends a **CRITICAL** alert with the traceback to your configured Teams webhook and/or generic webhook before re-raising. Per-message error handling ensures one bad message doesn't skip the rest.
 
 ### 2. Azure Monitor metric alerts (within minutes)
 
-Two alert rules notify you via email when something is wrong:
-
-| Alert | Condition | Check interval | What it means |
-|-------|-----------|----------------|---------------|
-| **Http5xx** | Any 5xx error in a 5-minute window | Every 5 min | Function crashed or threw an unhandled exception |
-| **No Executions** | Zero function executions in 1 hour | Every 30 min | Timer stopped firing — function app may be stopped, frozen, or misconfigured |
-
-To set these up in your own deployment:
+Alert when the function stops running:
 
 ```bash
 # Create an action group (who gets notified)
@@ -287,24 +285,12 @@ az monitor action-group create \
 SCOPE="/subscriptions/<sub-id>/resourceGroups/rg-emailreports/providers/Microsoft.Web/sites/func-emailreports"
 ACTION_GROUP="/subscriptions/<sub-id>/resourceGroups/rg-emailreports/providers/microsoft.insights/actionGroups/emailreports-alerts"
 
-# Alert on any function errors
-az monitor metrics alert create \
-  --name "EmailReports-Http5xx" \
-  --resource-group rg-emailreports \
-  --scopes "$SCOPE" \
-  --condition "total Http5xx > 0" \
-  --window-size 5m \
-  --evaluation-frequency 5m \
-  --severity 2 \
-  --action "$ACTION_GROUP" \
-  --description "Function execution errors"
-
 # Alert if function stops running entirely
 az monitor metrics alert create \
   --name "EmailReports-No-Executions" \
   --resource-group rg-emailreports \
   --scopes "$SCOPE" \
-  --condition "total FunctionExecutionCount < 1" \
+  --condition "total OnDemandFunctionExecutionCount < 1" \
   --window-size 1h \
   --evaluation-frequency 30m \
   --severity 2 \
@@ -314,25 +300,25 @@ az monitor metrics alert create \
 
 ### 3. Application Insights (full history)
 
-All logs, exceptions, and traces are stored in App Insights automatically. Useful queries in the Azure Portal **Logs** blade:
+All logs, exceptions, and traces are stored in App Insights automatically. Useful queries in the Azure Portal **Application Insights > Logs** blade:
 
 ```kusto
-// Recent failures
-requests
-| where success == false
+// All function runs
+traces
+| where message contains "Executed"
+| project timestamp, message
 | order by timestamp desc
-| take 20
-
-// All function runs in the last 24 hours
-requests
-| where timestamp > ago(24h)
-| summarize count() by bin(timestamp, 30m), success
-| render timechart
 
 // Exceptions with full stack traces
 exceptions
 | order by timestamp desc
 | take 10
+
+// Processing summary over time
+traces
+| where message contains "Run complete"
+| project timestamp, message
+| order by timestamp desc
 ```
 
 ## Alert Examples
@@ -345,11 +331,13 @@ Email alerts use a dashboard layout with:
 
 Teams alerts use Adaptive Cards with the same severity and data in markdown format.
 
+The generic webhook sends a JSON payload with `title`, `severity`, `body`, and `timestamp` — compatible with Slack, Discord, n8n, Power Automate, and similar services.
+
 ## Contributing
 
 1. Fork the repo
 2. Create a feature branch
-3. Ensure tests pass: `pytest tests/ --cov -W error::DeprecationWarning`
+3. Ensure tests pass: `pytest tests/ --cov --cov-fail-under=100 -W error::DeprecationWarning`
 4. Coverage must stay at 100%
 5. Open a PR against `main`
 
