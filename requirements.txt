@@ -1,5 +1,4 @@
 azure-functions==1.21.3
-azure-monitor-opentelemetry-exporter==1.0.0b33
 defusedxml==0.7.1
 msal==1.31.1
 requests==2.32.4
