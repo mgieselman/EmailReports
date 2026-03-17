@@ -80,6 +80,23 @@ class TestGetFolderId:
         result = GraphClient._get_folder_id(mock_graph, "emailreports@gieselman.com", "Email Reports")
         assert result == "folder-123"
 
+    def test_folder_cached_on_second_call(self, mock_graph):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"value": [{"id": "folder-123", "displayName": "Email Reports"}]}
+        mock_resp.raise_for_status = MagicMock()
+        mock_graph._session = MagicMock()
+        mock_graph._session.get.return_value = mock_resp
+        mock_graph._folder_cache = {}
+
+        from graph_client import GraphClient
+
+        # First call hits API
+        result1 = GraphClient._get_folder_id(mock_graph, "mb@test.com", "Inbox")
+        # Second call should use cache
+        result2 = GraphClient._get_folder_id(mock_graph, "mb@test.com", "Inbox")
+        assert result1 == result2 == "folder-123"
+        assert mock_graph._session.get.call_count == 1  # only one API call
+
     def test_folder_not_found(self, mock_graph):
         mock_resp = MagicMock()
         mock_resp.json.return_value = {"value": []}

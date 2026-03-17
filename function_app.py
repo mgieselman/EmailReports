@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Callable
+from typing import Any
 
 import azure.functions as func
 
@@ -29,14 +31,14 @@ def process_email_reports(timer: func.TimerRequest) -> None:
         logger.warning("Timer is past due — running anyway")
 
     try:
-        _run(timer)
+        _run()
     except Exception:
         logger.exception("Function failed")
         _send_error_notification()
         raise
 
 
-def _run(_timer: func.TimerRequest) -> None:
+def _run() -> None:
     with GraphClient() as graph:
         mailbox = os.environ["REPORT_MAILBOX"]
         mail_folder = os.environ.get("MAIL_FOLDER", "")
@@ -64,22 +66,34 @@ def _run(_timer: func.TimerRequest) -> None:
                 attachments = graph.get_attachments(mailbox, msg_id)
 
                 if dmarc_alias and dmarc_alias in to_addresses:
-                    alerts.extend(_parse_dmarc_attachments(attachments, subject))
+                    alerts.extend(
+                        _parse_attachments(attachments, subject, dmarc_parser.parse_attachment, alert.build_dmarc_alert)
+                    )
                 elif tlsrpt_alias and tlsrpt_alias in to_addresses:
-                    alerts.extend(_parse_tlsrpt_attachments(attachments, subject))
+                    alerts.extend(
+                        _parse_attachments(
+                            attachments, subject, tlsrpt_parser.parse_attachment, alert.build_tlsrpt_alert
+                        )
+                    )
                 else:
                     logger.debug("No alias match for '%s', trying both parsers", subject)
-                    alerts.extend(_parse_dmarc_attachments(attachments, subject))
-                    alerts.extend(_parse_tlsrpt_attachments(attachments, subject))
-
-                graph.mark_as_read(mailbox, msg_id)
+                    alerts.extend(
+                        _parse_attachments(attachments, subject, dmarc_parser.parse_attachment, alert.build_dmarc_alert)
+                    )
+                    alerts.extend(
+                        _parse_attachments(
+                            attachments, subject, tlsrpt_parser.parse_attachment, alert.build_tlsrpt_alert
+                        )
+                    )
 
                 if delete_after_days == 0:
                     graph.delete_message(mailbox, msg_id)
                     logger.debug("Deleted message '%s' (immediate)", subject)
-                elif move_to_folder:
-                    graph.move_message(mailbox, msg_id, move_to_folder)
-                    logger.debug("Moved message '%s' to '%s'", subject, move_to_folder)
+                else:
+                    graph.mark_as_read(mailbox, msg_id)
+                    if move_to_folder:
+                        graph.move_message(mailbox, msg_id, move_to_folder)
+                        logger.debug("Moved message '%s' to '%s'", subject, move_to_folder)
             except Exception:
                 errors += 1
                 logger.exception("Failed to process message %s", msg.get("id", "unknown"))
@@ -136,29 +150,21 @@ def _get_to_addresses(msg: dict) -> set[str]:
     return {r["emailAddress"]["address"].lower() for r in recipients if r.get("emailAddress", {}).get("address")}
 
 
-def _parse_dmarc_attachments(attachments: list[dict], subject: str) -> list[AlertSummary]:
+def _parse_attachments(
+    attachments: list[dict],
+    subject: str,
+    parser: Callable[[str, str], Any],
+    alert_builder: Callable[[Any], AlertSummary],
+) -> list[AlertSummary]:
+    """Parse attachments using the given parser and build alerts."""
     alerts: list[AlertSummary] = []
     for att in attachments:
         name = att.get("name", "")
         content_b64 = att.get("contentBytes", "")
         if not content_b64:
             continue
-        report = dmarc_parser.parse_attachment(name, content_b64)
+        report = parser(name, content_b64)
         if report:
-            logger.info("Parsed DMARC report %s from '%s'", report.report_id, subject)
-            alerts.append(alert.build_dmarc_alert(report))
-    return alerts
-
-
-def _parse_tlsrpt_attachments(attachments: list[dict], subject: str) -> list[AlertSummary]:
-    alerts: list[AlertSummary] = []
-    for att in attachments:
-        name = att.get("name", "")
-        content_b64 = att.get("contentBytes", "")
-        if not content_b64:
-            continue
-        report = tlsrpt_parser.parse_attachment(name, content_b64)
-        if report:
-            logger.info("Parsed TLS-RPT report %s from '%s'", report.report_id, subject)
-            alerts.append(alert.build_tlsrpt_alert(report))
+            logger.info("Parsed report %s from '%s'", report.report_id, subject)
+            alerts.append(alert_builder(report))
     return alerts

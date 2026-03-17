@@ -2,26 +2,22 @@
 
 from __future__ import annotations
 
-import gzip
-import io
 import logging
-import zipfile
 from base64 import b64decode
 from datetime import UTC, datetime
 
 import defusedxml.ElementTree as ET
 
+from attachment_util import extract_from_attachment
 from models import DmarcDisposition, DmarcRecord, DmarcReport, DmarcResult
 
 logger = logging.getLogger(__name__)
-
-MAX_DECOMPRESSED_SIZE = 50 * 1024 * 1024  # 50 MB
 
 
 def parse_attachment(name: str, content_bytes_b64: str) -> DmarcReport | None:
     """Decode a Graph attachment and return a DmarcReport, or None on failure."""
     raw = b64decode(content_bytes_b64)
-    xml_bytes = _extract_xml(name, raw)
+    xml_bytes = extract_from_attachment(name, raw, ".xml", "DMARC")
     if xml_bytes is None:
         return None
     try:
@@ -29,39 +25,6 @@ def parse_attachment(name: str, content_bytes_b64: str) -> DmarcReport | None:
     except ET.ParseError:
         logger.debug("Failed to parse XML from %s", name)
         return None
-
-
-def _extract_xml(filename: str, raw: bytes) -> bytes | None:
-    lower = filename.lower()
-    if lower.endswith(".xml"):
-        return raw
-    if lower.endswith(".gz"):
-        try:
-            data = gzip.decompress(raw)
-            if len(data) > MAX_DECOMPRESSED_SIZE:
-                logger.warning("Decompressed size exceeds limit for %s", filename)
-                return None
-            return data
-        except Exception:
-            logger.warning("Failed to gunzip %s", filename)
-            return None
-    if lower.endswith(".zip"):
-        try:
-            with zipfile.ZipFile(io.BytesIO(raw)) as zf:
-                xml_names = [n for n in zf.namelist() if n.lower().endswith(".xml")]
-                if not xml_names:
-                    logger.warning("No XML found inside zip %s", filename)
-                    return None
-                info = zf.getinfo(xml_names[0])
-                if info.file_size > MAX_DECOMPRESSED_SIZE:
-                    logger.warning("Decompressed size exceeds limit for %s in %s", xml_names[0], filename)
-                    return None
-                return zf.read(xml_names[0])
-        except Exception:
-            logger.warning("Failed to unzip %s", filename)
-            return None
-    logger.debug("Skipping non-DMARC attachment %s", filename)
-    return None
 
 
 def _parse_xml(data: bytes) -> DmarcReport:
@@ -133,7 +96,7 @@ def _parse_xml(data: bytes) -> DmarcReport:
     )
 
 
-def _text(parent, tag: str, default: str = "") -> str:
+def _text(parent, tag: str, default: str = "") -> str:  # type: ignore[type-arg]
     if parent is None:
         return default
     el = parent.find(tag)

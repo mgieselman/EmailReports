@@ -5,6 +5,8 @@ from __future__ import annotations
 import base64
 from unittest.mock import MagicMock, patch
 
+import dmarc_parser
+import tlsrpt_parser
 from models import AlertSeverity
 
 # ---------------------------------------------------------------------------
@@ -72,79 +74,65 @@ class TestGetToAddresses:
 
 
 # ---------------------------------------------------------------------------
-# _parse_dmarc_attachments
+# _parse_attachments
 # ---------------------------------------------------------------------------
 
 
-class TestParseDmarcAttachments:
+class TestParseAttachments:
     def _get_fn(self):
-        from function_app import _parse_dmarc_attachments
+        from function_app import _parse_attachments
 
-        return _parse_dmarc_attachments
+        return _parse_attachments
 
     def test_empty_attachments(self):
+        import alert as alert_mod
+
         fn = self._get_fn()
-        assert fn([], "test subject") == []
+        assert fn([], "test subject", dmarc_parser.parse_attachment, alert_mod.build_dmarc_alert) == []
 
     def test_attachment_no_content_bytes(self):
+        import alert as alert_mod
+
         fn = self._get_fn()
-        result = fn([{"name": "report.xml", "contentBytes": ""}], "test")
+        atts = [{"name": "report.xml", "contentBytes": ""}]
+        result = fn(atts, "test", dmarc_parser.parse_attachment, alert_mod.build_dmarc_alert)
         assert result == []
 
     def test_valid_dmarc_attachment(self, dmarc_b64_gz):
+        import alert as alert_mod
+
         fn = self._get_fn()
         attachments = [{"name": "report.xml.gz", "contentBytes": dmarc_b64_gz}]
-        result = fn(attachments, "test subject")
+        result = fn(attachments, "test subject", dmarc_parser.parse_attachment, alert_mod.build_dmarc_alert)
         assert len(result) == 1
         assert result[0].severity in (AlertSeverity.INFO, AlertSeverity.WARNING, AlertSeverity.CRITICAL)
 
-    def test_non_dmarc_attachment_ignored(self):
+    def test_valid_tlsrpt_attachment(self, tlsrpt_b64_gz):
+        import alert as alert_mod
+
+        fn = self._get_fn()
+        attachments = [{"name": "report.json.gz", "contentBytes": tlsrpt_b64_gz}]
+        result = fn(attachments, "test subject", tlsrpt_parser.parse_attachment, alert_mod.build_tlsrpt_alert)
+        assert len(result) == 1
+
+    def test_non_matching_attachment_ignored(self):
+        import alert as alert_mod
+
         fn = self._get_fn()
         attachments = [{"name": "photo.jpg", "contentBytes": base64.b64encode(b"jpeg").decode()}]
-        result = fn(attachments, "test")
+        result = fn(attachments, "test", dmarc_parser.parse_attachment, alert_mod.build_dmarc_alert)
         assert result == []
 
     def test_multiple_attachments(self, dmarc_b64_gz):
+        import alert as alert_mod
+
         fn = self._get_fn()
         attachments = [
             {"name": "report1.xml.gz", "contentBytes": dmarc_b64_gz},
             {"name": "report2.xml.gz", "contentBytes": dmarc_b64_gz},
         ]
-        result = fn(attachments, "test")
+        result = fn(attachments, "test", dmarc_parser.parse_attachment, alert_mod.build_dmarc_alert)
         assert len(result) == 2
-
-
-# ---------------------------------------------------------------------------
-# _parse_tlsrpt_attachments
-# ---------------------------------------------------------------------------
-
-
-class TestParseTlsRptAttachments:
-    def _get_fn(self):
-        from function_app import _parse_tlsrpt_attachments
-
-        return _parse_tlsrpt_attachments
-
-    def test_empty_attachments(self):
-        fn = self._get_fn()
-        assert fn([], "test subject") == []
-
-    def test_valid_tlsrpt_attachment(self, tlsrpt_b64_gz):
-        fn = self._get_fn()
-        attachments = [{"name": "report.json.gz", "contentBytes": tlsrpt_b64_gz}]
-        result = fn(attachments, "test subject")
-        assert len(result) == 1
-
-    def test_non_tlsrpt_attachment_ignored(self):
-        fn = self._get_fn()
-        attachments = [{"name": "data.xml", "contentBytes": base64.b64encode(b"<xml/>").decode()}]
-        result = fn(attachments, "test")
-        assert result == []
-
-    def test_attachment_no_content_bytes(self):
-        fn = self._get_fn()
-        result = fn([{"name": "report.json", "contentBytes": ""}], "test")
-        assert result == []
 
 
 # ---------------------------------------------------------------------------

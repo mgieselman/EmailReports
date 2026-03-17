@@ -8,6 +8,7 @@ import json
 import zipfile
 from datetime import UTC, datetime
 
+import attachment_util
 import tlsrpt_parser
 
 # ---------------------------------------------------------------------------
@@ -201,14 +202,14 @@ class TestEdgeCases:
     def test_oversized_gz_rejected(self, tlsrpt_json_bytes, monkeypatch):
         import gzip
 
-        monkeypatch.setattr(tlsrpt_parser, "MAX_DECOMPRESSED_SIZE", 10)
+        monkeypatch.setattr(attachment_util, "MAX_DECOMPRESSED_SIZE", 10)
         gz_data = gzip.compress(tlsrpt_json_bytes)
         b64 = base64.b64encode(gz_data).decode()
         result = tlsrpt_parser.parse_attachment("report.json.gz", b64)
         assert result is None
 
     def test_oversized_zip_entry_rejected(self, tlsrpt_json_bytes, monkeypatch):
-        monkeypatch.setattr(tlsrpt_parser, "MAX_DECOMPRESSED_SIZE", 10)
+        monkeypatch.setattr(attachment_util, "MAX_DECOMPRESSED_SIZE", 10)
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w") as zf:
             zf.writestr("report.json", tlsrpt_json_bytes)

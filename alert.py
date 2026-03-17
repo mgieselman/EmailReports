@@ -133,21 +133,21 @@ def _build_table(headers: list[str], rows: list[list[str]]) -> str:
     )
     td_style = "padding:9px 12px;font-size:13px;color:#334155;border-bottom:1px solid #f1f5f9"
 
-    html = '<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">'
-    html += "<tr>"
+    parts = ['<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">']
+    parts.append("<tr>")
     for h in headers:
-        html += f'<th style="{th_style}">{h}</th>'
-    html += "</tr>"
+        parts.append(f'<th style="{th_style}">{h}</th>')
+    parts.append("</tr>")
 
     for i, row in enumerate(rows):
         bg = "#ffffff" if i % 2 == 0 else "#f8fafc"
-        html += f'<tr style="background:{bg}">'
+        parts.append(f'<tr style="background:{bg}">')
         for cell in row:
-            html += f'<td style="{td_style}">{cell}</td>'
-        html += "</tr>"
+            parts.append(f'<td style="{td_style}">{cell}</td>')
+        parts.append("</tr>")
 
-    html += "</table>"
-    return html
+    parts.append("</table>")
+    return "".join(parts)
 
 
 # ---------------------------------------------------------------------------
