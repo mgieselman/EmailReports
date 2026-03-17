@@ -1,4 +1,4 @@
 azure-functions==1.21.3
 defusedxml==0.7.1
-msal==1.31.1
+msal==1.35.1
 requests==2.32.4
