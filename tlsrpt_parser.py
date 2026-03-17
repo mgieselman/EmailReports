@@ -22,7 +22,7 @@ def parse_attachment(name: str, content_bytes_b64: str) -> TlsRptReport | None:
     try:
         return _parse_json(json_bytes)
     except (json.JSONDecodeError, ValueError, KeyError):
-        logger.debug("Failed to parse JSON from %s", name)
+        logger.warning("Failed to parse JSON from %s", name)
         return None
 
 

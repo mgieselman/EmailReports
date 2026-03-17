@@ -20,6 +20,16 @@ app = func.FunctionApp()
 logger = logging.getLogger(__name__)
 
 
+_REQUIRED_ENV_VARS = ["REPORT_MAILBOX", "AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET"]
+
+
+def _validate_config() -> None:
+    """Fail fast if required configuration is missing."""
+    missing = [v for v in _REQUIRED_ENV_VARS if not os.environ.get(v)]
+    if missing:
+        raise RuntimeError(f"Missing required environment variables: {', '.join(missing)}")
+
+
 @app.timer_trigger(
     schedule="%TIMER_SCHEDULE_CRON%",
     arg_name="timer",
@@ -29,6 +39,8 @@ def process_email_reports(timer: func.TimerRequest) -> None:
     """Poll shared mailbox for DMARC and TLS-RPT reports, parse, and alert."""
     if timer.past_due:
         logger.warning("Timer is past due — running anyway")
+
+    _validate_config()
 
     try:
         _run()
@@ -99,12 +111,16 @@ def _run() -> None:
                 logger.exception("Failed to process message %s", msg.get("id", "unknown"))
 
         for a in alerts:
-            alert.send_teams_alert(a)
-            alert.send_generic_webhook(a)
-            alert.send_email_alert(a, graph)
+            try:
+                alert.send_teams_alert(a)
+                alert.send_generic_webhook(a)
+                alert.send_email_alert(a, graph)
+            except Exception:
+                logger.exception("Failed to deliver alert: %s", a.title)
 
         if delete_after_days > 0:
-            _cleanup_old_messages(graph, mailbox, mail_folder, delete_after_days)
+            cleanup_folder = move_to_folder or mail_folder
+            _cleanup_old_messages(graph, mailbox, cleanup_folder, delete_after_days)
 
         logger.info("Run complete — processed %d alert(s), %d error(s)", len(alerts), errors)
 

@@ -473,3 +473,61 @@ class TestProcessEmailReports:
 
         with pytest.raises(RuntimeError, match="Graph down"):
             process_email_reports(timer)
+
+    @patch("function_app.alert")
+    @patch("function_app.GraphClient")
+    def test_alert_delivery_failure_continues(self, MockGraphClient, mock_alert, dmarc_b64_gz):
+        """A failure delivering one alert should not prevent delivering the rest."""
+        mock_client = self._setup_graph_mock(MockGraphClient)
+        msgs = [
+            self._make_message("1", "dmarc-reports@gieselman.com"),
+            self._make_message("2", "dmarc-reports@gieselman.com"),
+        ]
+        mock_client.list_unread_messages.return_value = msgs
+        mock_client.get_attachments.return_value = [{"name": "r.xml.gz", "contentBytes": dmarc_b64_gz}]
+        # First Teams call fails, second should still happen
+        mock_alert.send_teams_alert.side_effect = [Exception("webhook down"), None]
+        mock_alert.build_dmarc_alert.side_effect = lambda r: MagicMock(title=f"Alert-{r.report_id}")
+
+        from function_app import process_email_reports
+
+        timer = MagicMock()
+        timer.past_due = False
+        process_email_reports(timer)
+
+        assert mock_alert.send_teams_alert.call_count == 2
+
+    @patch("function_app.alert")
+    @patch("function_app.GraphClient")
+    def test_cleanup_uses_move_folder(self, MockGraphClient, mock_alert, monkeypatch):
+        """Cleanup should look in the move-to folder, not the source folder."""
+        monkeypatch.setenv("DELETE_AFTER_DAYS", "30")
+        monkeypatch.setenv("MOVE_PROCESSED_TO", "Processed")
+        mock_client = self._setup_graph_mock(MockGraphClient)
+        mock_client.list_unread_messages.return_value = []
+        mock_client.list_read_messages_older_than.return_value = []
+
+        from function_app import process_email_reports
+
+        timer = MagicMock()
+        timer.past_due = False
+        process_email_reports(timer)
+
+        mock_client.list_read_messages_older_than.assert_called_once_with(
+            "emailreports@gieselman.com", 30, folder="Processed"
+        )
+
+    def test_validate_config_missing_var(self, monkeypatch):
+        monkeypatch.delenv("REPORT_MAILBOX", raising=False)
+
+        import pytest
+
+        from function_app import _validate_config
+
+        with pytest.raises(RuntimeError, match="REPORT_MAILBOX"):
+            _validate_config()
+
+    def test_validate_config_passes(self):
+        from function_app import _validate_config
+
+        _validate_config()  # should not raise with env defaults from conftest
