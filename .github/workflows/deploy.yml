@@ -46,7 +46,7 @@ jobs:
           pip install pytest pytest-cov
 
       - name: Run tests
-        run: pytest tests/ --cov --cov-report=term-missing --cov-fail-under=100 -W error::DeprecationWarning
+        run: pytest tests/ --cov --cov-report=term-missing --cov-report=xml --cov-fail-under=100 -W error::DeprecationWarning
         env:
           AZURE_TENANT_ID: test
           AZURE_CLIENT_ID: test
@@ -75,14 +75,18 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
+      - name: Install dependencies into package
+        run: pip install -r requirements.txt --target=".python_packages/lib/site-packages"
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Deploy to Azure Functions
         uses: Azure/functions-action@v1
         with:
-          app-name: func-emailreports-prod
+          app-name: func-emailreports-flex
           package: .
-          publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
-          scm-do-build-during-deployment: true
-          enable-oryx-build: true
+          sku: flexconsumption
+          remote-build: false
