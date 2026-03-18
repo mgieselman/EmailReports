@@ -49,8 +49,9 @@ bandit -r . -x ./.venv,./tests -ll
 
 - **Small and focused** — one feature or fix per PR
 - **Tested** — new code has tests, edge cases covered
-- **Documented** — update README if adding config options or changing behavior
+- **Documented** — update README/docs if adding config options or changing behavior
 - **No secrets** — never commit credentials, connection strings, or webhook URLs
+- **No HTML in Python** — all HTML lives in `templates/`. `alert.py` passes plain data to Jinja2 templates. Use macros in `templates/macros.html` for styled elements (badges, bold, monospace, etc.)
 
 ## Reporting Issues
 

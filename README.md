@@ -115,10 +115,16 @@ See [Monitoring Guide](docs/monitoring.md) for full details. Three layers:
 ├── dmarc_parser.py         # DMARC RUA XML parsing
 ├── tlsrpt_parser.py        # TLS-RPT JSON parsing
 ├── attachment_util.py      # Shared decompression (gz/zip)
-├── alert.py                # Alert formatting + delivery
+├── alert.py                # ViewModel — severity logic, data prep, delivery
 ├── storage.py              # Table Storage for report tracking
 ├── models.py               # Dataclasses and enums
-├── tests/                  # 208 tests, 100% coverage
+├── templates/              # Jinja2 HTML templates (View layer)
+│   ├── base.html           # Dashboard layout (header, cards, footer)
+│   ├── macros.html         # Reusable components (badges, tables, styled text)
+│   ├── dmarc_alert.html
+│   ├── tlsrpt_alert.html
+│   └── weekly_summary.html
+├── tests/                  # 204 tests, 100% coverage
 ├── .github/workflows/      # CI (lint+test+gitleaks) + deploy
 └── docs/                   # Setup, config, and monitoring guides
 ```
