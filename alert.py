@@ -14,6 +14,7 @@ from pathlib import Path
 
 import requests
 from jinja2 import Environment, FileSystemLoader
+from markupsafe import Markup
 
 from graph_client import GraphClient
 from models import (
@@ -31,7 +32,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
-_env = Environment(loader=FileSystemLoader(_TEMPLATE_DIR), autoescape=False)
+_env = Environment(loader=FileSystemLoader(_TEMPLATE_DIR), autoescape=True)
 
 SEVERITY_COLOR = {
     AlertSeverity.INFO: "#10b981",
@@ -64,16 +65,21 @@ def _base_context(title: str, severity: AlertSeverity, stat_cards: list[dict]) -
     }
 
 
+def _safe(s: str) -> Markup:
+    """Mark a pre-escaped HTML string as safe for Jinja2 autoescape."""
+    return Markup(s)  # noqa: S704  # nosec B704
+
+
 def _card(value: str, label: str, color: str = "#1e293b") -> dict:
     return {"value": value, "label": label, "color": color}
 
 
-def _badge(result: str, pass_value: str = "pass") -> str:
-    """Render a pass/fail pill badge (thin HTML kept here as it's inline markup)."""
+def _badge(result: str, pass_value: str = "pass") -> Markup:
+    """Render a pass/fail pill badge."""
     is_pass = result.lower() == pass_value.lower()
     bg = "#dcfce7" if is_pass else "#fee2e2"
     fg = "#166534" if is_pass else "#991b1b"
-    return (
+    return Markup(  # nosec B704
         f'<span style="display:inline-block;padding:2px 10px;border-radius:12px;'
         f"font-size:11px;font-weight:600;letter-spacing:0.5px;"
         f'background:{bg};color:{fg}">{result.upper()}</span>'
@@ -123,12 +129,12 @@ def build_dmarc_alert(report: DmarcReport) -> AlertSummary:
     for r in report.records[:50]:
         records_table.append(
             [
-                f'<span style="font-family:monospace;font-size:12px">{html.escape(r.source_ip)}</span>',
-                f'<span style="font-weight:600">{r.count}</span>',
+                _safe(f'<span style="font-family:monospace;font-size:12px">{html.escape(r.source_ip)}</span>'),
+                _safe(f'<span style="font-weight:600">{r.count}</span>'),
                 _badge(r.dkim_result.value),
                 _badge(r.spf_result.value),
                 html.escape(r.header_from),
-                f'<span style="font-size:11px;color:#64748b">{html.escape(r.dkim_domain) or "\u2014"}</span>',
+                _safe(f'<span style="font-size:11px;color:#64748b">{html.escape(r.dkim_domain) or "\u2014"}</span>'),
             ]
         )
 
@@ -199,18 +205,20 @@ def build_tlsrpt_alert(report: TlsRptReport) -> AlertSummary:
             for fd in pol.failure_details[:20]:
                 policies_table.append(
                     [
-                        f'<span style="font-weight:600">{html.escape(str(pol.policy_domain))}</span>',
+                        _safe(f'<span style="font-weight:600">{html.escape(str(pol.policy_domain))}</span>'),
                         html.escape(pol.policy_type.upper()),
                         _badge(fd.result_type, pass_value="successful"),
                         html.escape(fd.receiving_mx_hostname),
-                        f'<span style="font-weight:600">{fd.failed_session_count}</span>',
-                        f'<span style="font-size:11px;color:#64748b">{html.escape(fd.failure_reason_code)}</span>',
+                        _safe(f'<span style="font-weight:600">{fd.failed_session_count}</span>'),
+                        _safe(
+                            f'<span style="font-size:11px;color:#64748b">{html.escape(fd.failure_reason_code)}</span>'
+                        ),
                     ]
                 )
         else:
             policies_table.append(
                 [
-                    f'<span style="font-weight:600">{html.escape(str(pol.policy_domain))}</span>',
+                    _safe(f'<span style="font-weight:600">{html.escape(str(pol.policy_domain))}</span>'),
                     html.escape(pol.policy_type.upper()),
                     _badge("successful", pass_value="successful"),
                     "\u2014",
@@ -319,11 +327,11 @@ def build_weekly_summary(records: list[ReportRecord], days: int = 7) -> AlertSum
         fail_color = "#991b1b" if org_fails > 0 else "#166534"
         senders_table.append(
             [
-                f'<span style="font-weight:600">{html.escape(org)}</span>',
+                _safe(f'<span style="font-weight:600">{html.escape(org)}</span>'),
                 f"{vol:,}",
                 f"{org_dmarc:,}",
                 f"{org_tls:,}",
-                f'<span style="color:{fail_color}">{org_fails:,}</span>',
+                _safe(f'<span style="color:{fail_color}">{org_fails:,}</span>'),
             ]
         )
 
@@ -333,7 +341,7 @@ def build_weekly_summary(records: list[ReportRecord], days: int = 7) -> AlertSum
         color = "#166534" if pol == "reject" else "#b45309" if pol == "quarantine" else "#991b1b"
         policy_table.append(
             [
-                f'<span style="font-weight:600;color:{color}">{html.escape(pol.upper())}</span>',
+                _safe(f'<span style="font-weight:600;color:{color}">{html.escape(pol.upper())}</span>'),
                 f"{count:,}",
                 pct,
             ]
@@ -343,8 +351,8 @@ def build_weekly_summary(records: list[ReportRecord], days: int = 7) -> AlertSum
     for org, count in top_failures:
         failures_table.append(
             [
-                f'<span style="font-weight:600">{html.escape(org)}</span>',
-                f'<span style="color:#991b1b;font-weight:600">{count:,}</span>',
+                _safe(f'<span style="font-weight:600">{html.escape(org)}</span>'),
+                _safe(f'<span style="color:#991b1b;font-weight:600">{count:,}</span>'),
             ]
         )
 

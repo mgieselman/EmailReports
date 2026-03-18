@@ -14,7 +14,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "test_alert.py" = ["E402"]
 "tests/*" = ["S101"]
-"alert.py" = ["E501", "S701"]  # HTML in templates; autoescape off because cells contain pre-built badge markup
+"alert.py" = ["E501", "S704"]  # Markup() wraps pre-escaped HTML for Jinja2 autoescape
 
 [tool.mypy]
 python_version = "3.12"
@@ -26,10 +26,10 @@ module = "graph_client"
 warn_return_any = false  # Graph API returns untyped JSON
 
 [[tool.mypy.overrides]]
-module = ["defusedxml", "defusedxml.*", "msal", "jinja2"]
+module = ["defusedxml", "defusedxml.*", "msal", "jinja2", "markupsafe"]
 ignore_missing_imports = true
 follow_untyped_imports = true
 
 [tool.bandit]
 exclude_dirs = [".venv", "tests"]
-skips = ["B101"]
+skips = ["B101", "B704"]  # B704: Markup() wraps pre-escaped HTML (values escaped via html.escape)
