@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% from "macros.html" import data_table, section_header %}
+
+{% block subtitle %}
+Period: <strong style='color:#e2e8f0'>Last {{ days }} days</strong> &nbsp;&bull;&nbsp;
+Reports: <strong style='color:#e2e8f0'>{{ total_reports }}</strong> &nbsp;&bull;&nbsp;
+Attachments: <strong style='color:#e2e8f0'>{{ total_size }}</strong>
+{% endblock %}
+
+{% block content %}
+<div style="margin-bottom:16px">
+  {{ section_header("Reporting Sources") }}
+  {{ data_table(
+    ["Reporter", "Total Volume", "DMARC", "TLS-RPT", "Failures"],
+    senders_table
+  ) }}
+</div>
+
+{% if policy_table %}
+<div style="margin-bottom:16px">
+  {{ section_header("DMARC Policy Distribution") }}
+  {{ data_table(["Policy", "Messages", "Share"], policy_table) }}
+</div>
+{% endif %}
+
+{% if failures_table %}
+<div>
+  {{ section_header("Top Failure Sources") }}
+  {{ data_table(["Source", "Failures"], failures_table) }}
+</div>
+{% endif %}
+{% endblock %}

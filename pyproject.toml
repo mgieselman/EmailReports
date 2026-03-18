@@ -14,7 +14,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "test_alert.py" = ["E402"]
 "tests/*" = ["S101"]
-"alert.py" = ["E501"]  # long HTML template lines
+"alert.py" = ["E501", "S701"]  # HTML in templates; autoescape off because cells contain pre-built badge markup
 
 [tool.mypy]
 python_version = "3.12"
@@ -26,7 +26,7 @@ module = "graph_client"
 warn_return_any = false  # Graph API returns untyped JSON
 
 [[tool.mypy.overrides]]
-module = ["defusedxml", "defusedxml.*", "msal"]
+module = ["defusedxml", "defusedxml.*", "msal", "jinja2"]
 ignore_missing_imports = true
 follow_untyped_imports = true
 

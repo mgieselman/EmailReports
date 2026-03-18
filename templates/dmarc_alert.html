@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% from "macros.html" import status_badge, data_table, mono, bold, subtle %}
+
+{% block subtitle %}
+Reporter: <strong style='color:#e2e8f0'>{{ report.org_name|e }}</strong> &nbsp;&bull;&nbsp;
+Domain: <strong style='color:#e2e8f0'>{{ report.domain|e }}</strong> &nbsp;&bull;&nbsp;
+Period: <strong style='color:#e2e8f0'>{{ report.date_begin.strftime('%Y-%m-%d') }}</strong> to
+<strong style='color:#e2e8f0'>{{ report.date_end.strftime('%Y-%m-%d') }}</strong>
+{% endblock %}
+
+{% block content %}
+{{ data_table(
+  ["Source IP", "Count", "DKIM", "SPF", "Header From", "Auth Domain"],
+  records_table
+) }}
+{% endblock %}

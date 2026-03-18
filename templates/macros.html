@@ -1,0 +1,45 @@
+{# Reusable macros for table rendering and badges #}
+
+{% macro status_badge(result, pass_value="pass") %}
+{%- set is_pass = result|lower == pass_value|lower -%}
+{%- set bg = "#dcfce7" if is_pass else "#fee2e2" -%}
+{%- set fg = "#166534" if is_pass else "#991b1b" -%}
+<span style="display:inline-block;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600;letter-spacing:0.5px;background:{{ bg }};color:{{ fg }}">{{ result|upper }}</span>
+{%- endmacro %}
+
+{% macro data_table(headers, rows) %}
+<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
+  <tr>
+    {% for h in headers %}
+    <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:#64748b;background:#f8fafc;border-bottom:2px solid #e2e8f0">{{ h }}</th>
+    {% endfor %}
+  </tr>
+  {% for row in rows %}
+  <tr style="background:{{ '#ffffff' if loop.index0 % 2 == 0 else '#f8fafc' }}">
+    {% for cell in row %}
+    <td style="padding:9px 12px;font-size:13px;color:#334155;border-bottom:1px solid #f1f5f9">{{ cell }}</td>
+    {% endfor %}
+  </tr>
+  {% endfor %}
+</table>
+{%- endmacro %}
+
+{% macro section_header(text) %}
+<div style="font-size:13px;font-weight:600;color:#1e293b;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">{{ text }}</div>
+{%- endmacro %}
+
+{% macro mono(text) %}
+<span style="font-family:monospace;font-size:12px">{{ text|e }}</span>
+{%- endmacro %}
+
+{% macro bold(text) %}
+<span style="font-weight:600">{{ text }}</span>
+{%- endmacro %}
+
+{% macro subtle(text) %}
+<span style="font-size:11px;color:#64748b">{{ text|e }}</span>
+{%- endmacro %}
+
+{% macro colored(text, color) %}
+<span style="color:{{ color }};font-weight:600">{{ text }}</span>
+{%- endmacro %}

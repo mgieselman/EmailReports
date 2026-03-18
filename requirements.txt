@@ -1,5 +1,6 @@
 azure-data-tables==12.6.0
 azure-functions==1.24.0
 defusedxml==0.7.1
+jinja2==3.1.6
 msal==1.35.1
 requests==2.32.5

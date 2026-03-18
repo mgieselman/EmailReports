@@ -187,7 +187,7 @@ class TestDmarcHtmlContent:
     def test_contains_footer(self):
         records = [_dmarc_record(count=10)]
         result = alert.build_dmarc_alert(_dmarc_report(records))
-        assert "gieselman.com Email Security Monitor" in result.body_html
+        assert "Email Security Monitor" in result.body_html
 
     def test_title_format(self):
         records = [_dmarc_record(count=10)]
@@ -383,43 +383,37 @@ class TestSendEmailAlert:
 # ---------------------------------------------------------------------------
 
 
-class TestHtmlHelpers:
-    def test_status_badge_pass(self):
-        html = alert._status_badge("pass")
-        assert "PASS" in html
-        assert "#dcfce7" in html  # green bg
+class TestViewModelHelpers:
+    def test_badge_pass(self):
+        result = alert._badge("pass")
+        assert "PASS" in result
+        assert "#dcfce7" in result
 
-    def test_status_badge_fail(self):
-        html = alert._status_badge("fail")
-        assert "FAIL" in html
-        assert "#fee2e2" in html  # red bg
+    def test_badge_fail(self):
+        result = alert._badge("fail")
+        assert "FAIL" in result
+        assert "#fee2e2" in result
 
-    def test_status_badge_custom_pass_value(self):
-        html = alert._status_badge("successful", pass_value="successful")
-        assert "SUCCESSFUL" in html
-        assert "#dcfce7" in html
+    def test_badge_custom_pass_value(self):
+        result = alert._badge("successful", pass_value="successful")
+        assert "SUCCESSFUL" in result
+        assert "#dcfce7" in result
 
-    def test_stat_card_content(self):
-        html = alert._stat_card("42", "Total")
-        assert "42" in html
-        assert "Total" in html
+    def test_card_returns_dict(self):
+        card = alert._card("42", "Total", "#ff0000")
+        assert card["value"] == "42"
+        assert card["label"] == "Total"
+        assert card["color"] == "#ff0000"
 
-    def test_stat_card_custom_color(self):
-        html = alert._stat_card("0", "Failed", color="#991b1b")
-        assert "#991b1b" in html
+    def test_card_default_color(self):
+        card = alert._card("0", "Test")
+        assert card["color"] == "#1e293b"
 
-    def test_build_table_empty_rows(self):
-        html = alert._build_table(["A", "B"], [])
-        assert "<th" in html
-        assert "<td" not in html
-
-    def test_build_table_alternating_rows(self):
-        html = alert._build_table(["X"], [["row0"], ["row1"], ["row2"]])
-        assert "row0" in html
-        assert "row1" in html
-        assert "row2" in html
-        # Even rows white, odd rows light gray
-        assert "#f8fafc" in html
+    def test_base_context(self):
+        ctx = alert._base_context("Title", AlertSeverity.WARNING, [alert._card("1", "X")])
+        assert ctx["title"] == "Title"
+        assert ctx["sev_label"] == "WARNING"
+        assert len(ctx["stat_cards"]) == 1
 
 
 # ---------------------------------------------------------------------------

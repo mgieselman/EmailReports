@@ -1,4 +1,8 @@
-"""Alert formatting and delivery via Teams webhook and Graph email."""
+"""Alert formatting and delivery via Teams webhook and Graph email.
+
+This module is the ViewModel layer — it prepares data contexts and passes
+them to Jinja2 templates for HTML rendering. No HTML is constructed here.
+"""
 
 from __future__ import annotations
 
@@ -6,8 +10,10 @@ import html
 import logging
 import os
 from datetime import UTC, datetime
+from pathlib import Path
 
 import requests
+from jinja2 import Environment, FileSystemLoader
 
 from graph_client import GraphClient
 from models import (
@@ -19,6 +25,13 @@ from models import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Template engine
+# ---------------------------------------------------------------------------
+
+_TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
+_env = Environment(loader=FileSystemLoader(_TEMPLATE_DIR), autoescape=False)
 
 SEVERITY_COLOR = {
     AlertSeverity.INFO: "#10b981",
@@ -39,120 +52,36 @@ SEVERITY_BG = {
 }
 
 
-# ---------------------------------------------------------------------------
-# Shared HTML helpers
-# ---------------------------------------------------------------------------
+def _base_context(title: str, severity: AlertSeverity, stat_cards: list[dict]) -> dict:
+    """Build the shared template context for the base layout."""
+    return {
+        "title": title,
+        "sev_color": SEVERITY_COLOR[severity],
+        "sev_label": SEVERITY_LABEL[severity],
+        "sev_bg": SEVERITY_BG[severity],
+        "stat_cards": stat_cards,
+        "timestamp": f"{datetime.now(UTC):%Y-%m-%d %H:%M} UTC",
+    }
 
 
-def _status_badge(result: str, pass_value: str = "pass") -> str:
-    """Render a pass/fail pill badge."""
+def _card(value: str, label: str, color: str = "#1e293b") -> dict:
+    return {"value": value, "label": label, "color": color}
+
+
+def _badge(result: str, pass_value: str = "pass") -> str:
+    """Render a pass/fail pill badge (thin HTML kept here as it's inline markup)."""
     is_pass = result.lower() == pass_value.lower()
     bg = "#dcfce7" if is_pass else "#fee2e2"
     fg = "#166534" if is_pass else "#991b1b"
-    label = result.upper()
     return (
         f'<span style="display:inline-block;padding:2px 10px;border-radius:12px;'
         f"font-size:11px;font-weight:600;letter-spacing:0.5px;"
-        f'background:{bg};color:{fg}">{label}</span>'
+        f'background:{bg};color:{fg}">{result.upper()}</span>'
     )
-
-
-def _stat_card(value: str, label: str, color: str = "#1e293b") -> str:
-    """Render a KPI stat card for the dashboard row."""
-    return (
-        f'<td style="padding:0 8px"><div style="background:#ffffff;border:1px solid #e2e8f0;'
-        f'border-radius:8px;padding:16px 20px;text-align:center;min-width:100px">'
-        f'<div style="font-size:28px;font-weight:700;color:{color};line-height:1.1">{value}</div>'
-        f'<div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;'
-        f'margin-top:4px">{label}</div></div></td>'
-    )
-
-
-def _wrap_dashboard(
-    title: str, severity: AlertSeverity, subtitle: str, stat_cards_html: str, table_html: str, timestamp: str
-) -> str:
-    """Wrap content in the full dashboard email layout."""
-    sev_color = SEVERITY_COLOR[severity]
-    sev_label = SEVERITY_LABEL[severity]
-    sev_bg = SEVERITY_BG[severity]
-
-    return f"""\
-<!DOCTYPE html>
-<html><head><meta charset="utf-8"></head>
-<body style="margin:0;padding:0;background:#f1f5f9;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 0">
-<tr><td align="center">
-<table width="640" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1)">
-
-  <!-- Header bar -->
-  <tr><td style="background:#0f172a;padding:20px 28px">
-    <table width="100%" cellpadding="0" cellspacing="0"><tr>
-      <td style="color:#ffffff;font-size:18px;font-weight:600">{title}</td>
-      <td align="right">
-        <span style="display:inline-block;padding:4px 14px;border-radius:20px;font-size:11px;
-              font-weight:700;letter-spacing:1px;background:{sev_color};color:#ffffff">{sev_label}</span>
-      </td>
-    </tr></table>
-  </td></tr>
-
-  <!-- Subtitle / meta -->
-  <tr><td style="background:#1e293b;padding:10px 28px;color:#94a3b8;font-size:12px">
-    {subtitle}
-  </td></tr>
-
-  <!-- Stat cards -->
-  <tr><td style="padding:20px 20px 12px;background:{sev_bg}">
-    <table cellpadding="0" cellspacing="0" style="width:100%"><tr>
-      {stat_cards_html}
-    </tr></table>
-  </td></tr>
-
-  <!-- Data table -->
-  <tr><td style="padding:12px 20px 24px">
-    {table_html}
-  </td></tr>
-
-  <!-- Footer -->
-  <tr><td style="background:#f8fafc;padding:14px 28px;border-top:1px solid #e2e8f0">
-    <table width="100%" cellpadding="0" cellspacing="0"><tr>
-      <td style="color:#94a3b8;font-size:11px">gieselman.com Email Security Monitor</td>
-      <td align="right" style="color:#94a3b8;font-size:11px">{timestamp}</td>
-    </tr></table>
-  </td></tr>
-
-</table>
-</td></tr></table>
-</body></html>"""
-
-
-def _build_table(headers: list[str], rows: list[list[str]]) -> str:
-    """Build a styled HTML table."""
-    th_style = (
-        "padding:10px 12px;text-align:left;font-size:11px;font-weight:600;"
-        "text-transform:uppercase;letter-spacing:0.5px;color:#64748b;"
-        "background:#f8fafc;border-bottom:2px solid #e2e8f0"
-    )
-    td_style = "padding:9px 12px;font-size:13px;color:#334155;border-bottom:1px solid #f1f5f9"
-
-    parts = ['<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">']
-    parts.append("<tr>")
-    for h in headers:
-        parts.append(f'<th style="{th_style}">{h}</th>')
-    parts.append("</tr>")
-
-    for i, row in enumerate(rows):
-        bg = "#ffffff" if i % 2 == 0 else "#f8fafc"
-        parts.append(f'<tr style="background:{bg}">')
-        for cell in row:
-            parts.append(f'<td style="{td_style}">{cell}</td>')
-        parts.append("</tr>")
-
-    parts.append("</table>")
-    return "".join(parts)
 
 
 # ---------------------------------------------------------------------------
-# Build alert summaries from parsed reports
+# DMARC alert
 # ---------------------------------------------------------------------------
 
 
@@ -169,7 +98,9 @@ def build_dmarc_alert(report: DmarcReport) -> AlertSummary:
     else:
         severity = AlertSeverity.WARNING
 
-    # Markdown for Teams
+    pass_rate = f"{pass_count / max(total, 1) * 100:.0f}%"
+
+    # Markdown (Teams)
     lines = [
         f"**Org:** {report.org_name}",
         f"**Domain:** {report.domain}",
@@ -186,58 +117,48 @@ def build_dmarc_alert(report: DmarcReport) -> AlertSummary:
             lines.append(
                 f"| {r.source_ip} | {r.count} | {r.dkim_result.value} | {r.spf_result.value} | {r.header_from} |"
             )
-    body_md = "\n".join(lines)
 
-    # HTML dashboard email
-    subtitle = (
-        f"Reporter: <strong style='color:#e2e8f0'>{report.org_name}</strong> &nbsp;&bull;&nbsp; "
-        f"Domain: <strong style='color:#e2e8f0'>{report.domain}</strong> &nbsp;&bull;&nbsp; "
-        f"Period: <strong style='color:#e2e8f0'>{report.date_begin:%Y-%m-%d}</strong> to "
-        f"<strong style='color:#e2e8f0'>{report.date_end:%Y-%m-%d}</strong>"
-    )
-
-    pass_rate = f"{pass_count / max(total, 1) * 100:.0f}%"
-    stat_cards = (
-        _stat_card(str(total), "Total Messages")
-        + _stat_card(str(pass_count), "Passing", "#166534")
-        + _stat_card(str(fail_count), "Failing", "#991b1b" if fail_count > 0 else "#166534")
-        + _stat_card(pass_rate, "Pass Rate", "#166534" if pass_count == total else "#b45309")
-        + _stat_card(report.policy.value.upper(), "Policy")
-    )
-
-    table_rows = []
+    # Table rows for template
+    records_table = []
     for r in report.records[:50]:
-        table_rows.append(
+        records_table.append(
             [
                 f'<span style="font-family:monospace;font-size:12px">{html.escape(r.source_ip)}</span>',
                 f'<span style="font-weight:600">{r.count}</span>',
-                _status_badge(r.dkim_result.value),
-                _status_badge(r.spf_result.value),
+                _badge(r.dkim_result.value),
+                _badge(r.spf_result.value),
                 html.escape(r.header_from),
-                f'<span style="font-size:11px;color:#64748b">{html.escape(r.dkim_domain) or "—"}</span>',
+                f'<span style="font-size:11px;color:#64748b">{html.escape(r.dkim_domain) or "\u2014"}</span>',
             ]
         )
 
-    table_html = _build_table(
-        ["Source IP", "Count", "DKIM", "SPF", "Header From", "Auth Domain"],
-        table_rows,
+    ctx = _base_context(
+        "DMARC Aggregate Report",
+        severity,
+        [
+            _card(str(total), "Total Messages"),
+            _card(str(pass_count), "Passing", "#166534"),
+            _card(str(fail_count), "Failing", "#991b1b" if fail_count > 0 else "#166534"),
+            _card(pass_rate, "Pass Rate", "#166534" if pass_count == total else "#b45309"),
+            _card(report.policy.value.upper(), "Policy"),
+        ],
     )
+    ctx["report"] = report
+    ctx["records_table"] = records_table
 
-    body_html = _wrap_dashboard(
-        title="DMARC Aggregate Report",
-        severity=severity,
-        subtitle=subtitle,
-        stat_cards_html=stat_cards,
-        table_html=table_html,
-        timestamp=f"{datetime.now(UTC):%Y-%m-%d %H:%M} UTC",
-    )
+    body_html = _env.get_template("dmarc_alert.html").render(ctx)
 
     return AlertSummary(
         title=f"DMARC Report: {report.domain} ({report.org_name})",
         severity=severity,
-        body_markdown=body_md,
+        body_markdown="\n".join(lines),
         body_html=body_html,
     )
+
+
+# ---------------------------------------------------------------------------
+# TLS-RPT alert
+# ---------------------------------------------------------------------------
 
 
 def build_tlsrpt_alert(report: TlsRptReport) -> AlertSummary:
@@ -252,7 +173,9 @@ def build_tlsrpt_alert(report: TlsRptReport) -> AlertSummary:
     else:
         severity = AlertSeverity.WARNING
 
-    # Markdown for Teams
+    success_rate = f"{total_ok / max(total_all, 1) * 100:.0f}%"
+
+    # Markdown (Teams)
     lines = [
         f"**Org:** {report.org_name}",
         f"**Period:** {report.date_begin:%Y-%m-%d} \u2013 {report.date_end:%Y-%m-%d}",
@@ -268,67 +191,53 @@ def build_tlsrpt_alert(report: TlsRptReport) -> AlertSummary:
                 lines.append(
                     f"| {fd.result_type} | {fd.receiving_mx_hostname} | {fd.failed_session_count} | {fd.failure_reason_code} |"
                 )
-    body_md = "\n".join(lines)
 
-    # HTML dashboard email
-    subtitle = (
-        f"Reporter: <strong style='color:#e2e8f0'>{report.org_name}</strong> &nbsp;&bull;&nbsp; "
-        f"Period: <strong style='color:#e2e8f0'>{report.date_begin:%Y-%m-%d}</strong> to "
-        f"<strong style='color:#e2e8f0'>{report.date_end:%Y-%m-%d}</strong>"
-    )
-
-    success_rate = f"{total_ok / max(total_all, 1) * 100:.0f}%"
-    stat_cards = (
-        _stat_card(str(total_all), "Total Sessions")
-        + _stat_card(str(total_ok), "Successful", "#166534")
-        + _stat_card(str(total_fail), "Failed", "#991b1b" if total_fail > 0 else "#166534")
-        + _stat_card(success_rate, "Success Rate", "#166534" if total_fail == 0 else "#b45309")
-    )
-
-    table_rows = []
+    # Table rows for template
+    policies_table = []
     for pol in report.policies:
         if pol.failure_details:
             for fd in pol.failure_details[:20]:
-                table_rows.append(
+                policies_table.append(
                     [
                         f'<span style="font-weight:600">{html.escape(str(pol.policy_domain))}</span>',
                         html.escape(pol.policy_type.upper()),
-                        _status_badge(fd.result_type, pass_value="successful"),
+                        _badge(fd.result_type, pass_value="successful"),
                         html.escape(fd.receiving_mx_hostname),
                         f'<span style="font-weight:600">{fd.failed_session_count}</span>',
                         f'<span style="font-size:11px;color:#64748b">{html.escape(fd.failure_reason_code)}</span>',
                     ]
                 )
         else:
-            table_rows.append(
+            policies_table.append(
                 [
                     f'<span style="font-weight:600">{html.escape(str(pol.policy_domain))}</span>',
                     html.escape(pol.policy_type.upper()),
-                    _status_badge("successful", pass_value="successful"),
-                    "—",
+                    _badge("successful", pass_value="successful"),
+                    "\u2014",
                     "0",
-                    "—",
+                    "\u2014",
                 ]
             )
 
-    table_html = _build_table(
-        ["Domain", "Policy", "Result", "MX Host", "Failed", "Reason"],
-        table_rows,
+    ctx = _base_context(
+        "TLS-RPT Report",
+        severity,
+        [
+            _card(str(total_all), "Total Sessions"),
+            _card(str(total_ok), "Successful", "#166534"),
+            _card(str(total_fail), "Failed", "#991b1b" if total_fail > 0 else "#166534"),
+            _card(success_rate, "Success Rate", "#166534" if total_fail == 0 else "#b45309"),
+        ],
     )
+    ctx["report"] = report
+    ctx["policies_table"] = policies_table
 
-    body_html = _wrap_dashboard(
-        title="TLS-RPT Report",
-        severity=severity,
-        subtitle=subtitle,
-        stat_cards_html=stat_cards,
-        table_html=table_html,
-        timestamp=f"{datetime.now(UTC):%Y-%m-%d %H:%M} UTC",
-    )
+    body_html = _env.get_template("tlsrpt_alert.html").render(ctx)
 
     return AlertSummary(
         title=f"TLS-RPT: {report.org_name}",
         severity=severity,
-        body_markdown=body_md,
+        body_markdown="\n".join(lines),
         body_html=body_html,
     )
 
@@ -360,19 +269,17 @@ def build_weekly_summary(records: list[ReportRecord], days: int = 7) -> AlertSum
     total_bytes = sum(r.attachment_size_bytes for r in records)
     total_size = _format_bytes(total_bytes)
 
-    # Top senders by message volume
+    # Aggregations
     org_volumes: dict[str, int] = {}
     for r in records:
         org_volumes[r.org_name] = org_volumes.get(r.org_name, 0) + r.total_messages
     top_senders = sorted(org_volumes.items(), key=lambda x: x[1], reverse=True)[:10]
 
-    # Policy distribution (DMARC only)
     policy_counts: dict[str, int] = {}
     for r in dmarc:
         policy_counts[r.policy] = policy_counts.get(r.policy, 0) + r.total_messages
     policy_dist = sorted(policy_counts.items(), key=lambda x: x[1], reverse=True)
 
-    # Top failure sources
     failure_orgs: dict[str, int] = {}
     for r in records:
         if r.fail_count > 0:
@@ -389,63 +296,42 @@ def build_weekly_summary(records: list[ReportRecord], days: int = 7) -> AlertSum
     else:
         severity = AlertSeverity.WARNING
 
-    # Markdown (for Teams)
+    # Markdown (Teams)
     md_lines = [
         f"**Period:** Last {days} days",
         f"**Total reports:** {total_reports} ({dmarc_reports} DMARC, {tlsrpt_reports} TLS-RPT)",
         f"**Attachment volume:** {total_size}",
         "",
-        f"**DMARC:** {dmarc_messages} messages — {dmarc_pass} pass, {dmarc_fail} fail ({dmarc_pass_rate})",
-        f"**TLS-RPT:** {tls_total} sessions — {tls_pass} pass, {tls_fail} fail ({tls_pass_rate})",
+        f"**DMARC:** {dmarc_messages} messages \u2014 {dmarc_pass} pass, {dmarc_fail} fail ({dmarc_pass_rate})",
+        f"**TLS-RPT:** {tls_total} sessions \u2014 {tls_pass} pass, {tls_fail} fail ({tls_pass_rate})",
     ]
     if top_senders:
         md_lines.extend(["", "**Top Senders:**"])
         for org, vol in top_senders[:5]:
             md_lines.append(f"- {org}: {vol:,} messages")
-    body_md = "\n".join(md_lines)
 
-    # HTML dashboard
-    subtitle = (
-        f"Period: <strong style='color:#e2e8f0'>Last {days} days</strong> &nbsp;&bull;&nbsp; "
-        f"Reports: <strong style='color:#e2e8f0'>{total_reports}</strong> &nbsp;&bull;&nbsp; "
-        f"Attachments: <strong style='color:#e2e8f0'>{total_size}</strong>"
-    )
-
-    stat_cards = (
-        _stat_card(str(total_reports), "Reports")
-        + _stat_card(str(dmarc_messages), "DMARC Messages")
-        + _stat_card(dmarc_pass_rate, "DMARC Pass Rate", "#166534" if dmarc_fail == 0 else "#b45309")
-        + _stat_card(str(tls_total), "TLS Sessions")
-        + _stat_card(tls_pass_rate, "TLS Pass Rate", "#166534" if tls_fail == 0 else "#b45309")
-    )
-
-    # Senders table
-    sender_rows = []
+    # Table data for template
+    senders_table = []
     for org, vol in top_senders:
         org_dmarc = sum(r.total_messages for r in dmarc if r.org_name == org)
         org_tls = sum(r.pass_count + r.fail_count for r in tlsrpt if r.org_name == org)
         org_fails = failure_orgs.get(org, 0)
-        sender_rows.append(
+        fail_color = "#991b1b" if org_fails > 0 else "#166534"
+        senders_table.append(
             [
                 f'<span style="font-weight:600">{html.escape(org)}</span>',
                 f"{vol:,}",
                 f"{org_dmarc:,}",
                 f"{org_tls:,}",
-                f'<span style="color:{"#991b1b" if org_fails > 0 else "#166534"}">{org_fails:,}</span>',
+                f'<span style="color:{fail_color}">{org_fails:,}</span>',
             ]
         )
 
-    sender_table = _build_table(
-        ["Reporter", "Total Volume", "DMARC", "TLS-RPT", "Failures"],
-        sender_rows,
-    )
-
-    # Policy table
-    policy_rows = []
+    policy_table = []
     for pol, count in policy_dist:
         pct = f"{count / max(dmarc_messages, 1) * 100:.0f}%"
         color = "#166534" if pol == "reject" else "#b45309" if pol == "quarantine" else "#991b1b"
-        policy_rows.append(
+        policy_table.append(
             [
                 f'<span style="font-weight:600;color:{color}">{html.escape(pol.upper())}</span>',
                 f"{count:,}",
@@ -453,58 +339,43 @@ def build_weekly_summary(records: list[ReportRecord], days: int = 7) -> AlertSum
             ]
         )
 
-    policy_table = _build_table(["Policy", "Messages", "Share"], policy_rows) if policy_rows else ""
+    failures_table = []
+    for org, count in top_failures:
+        failures_table.append(
+            [
+                f'<span style="font-weight:600">{html.escape(org)}</span>',
+                f'<span style="color:#991b1b;font-weight:600">{count:,}</span>',
+            ]
+        )
 
-    # Combine tables
-    tables_html = f"""
-    <div style="margin-bottom:16px">
-      <div style="font-size:13px;font-weight:600;color:#1e293b;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">
-        Reporting Sources
-      </div>
-      {sender_table}
-    </div>"""
-
-    if policy_table:
-        tables_html += f"""
-    <div style="margin-bottom:16px">
-      <div style="font-size:13px;font-weight:600;color:#1e293b;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">
-        DMARC Policy Distribution
-      </div>
-      {policy_table}
-    </div>"""
-
-    # Top failures table
-    if top_failures:
-        fail_rows = []
-        for org, count in top_failures:
-            fail_rows.append(
-                [
-                    f'<span style="font-weight:600">{html.escape(org)}</span>',
-                    f'<span style="color:#991b1b;font-weight:600">{count:,}</span>',
-                ]
-            )
-        fail_table = _build_table(["Source", "Failures"], fail_rows)
-        tables_html += f"""
-    <div>
-      <div style="font-size:13px;font-weight:600;color:#1e293b;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">
-        Top Failure Sources
-      </div>
-      {fail_table}
-    </div>"""
-
-    body_html = _wrap_dashboard(
-        title="Weekly Email Security Summary",
-        severity=severity,
-        subtitle=subtitle,
-        stat_cards_html=stat_cards,
-        table_html=tables_html,
-        timestamp=f"{datetime.now(UTC):%Y-%m-%d %H:%M} UTC",
+    ctx = _base_context(
+        "Weekly Email Security Summary",
+        severity,
+        [
+            _card(str(total_reports), "Reports"),
+            _card(str(dmarc_messages), "DMARC Messages"),
+            _card(dmarc_pass_rate, "DMARC Pass Rate", "#166534" if dmarc_fail == 0 else "#b45309"),
+            _card(str(tls_total), "TLS Sessions"),
+            _card(tls_pass_rate, "TLS Pass Rate", "#166534" if tls_fail == 0 else "#b45309"),
+        ],
+    )
+    ctx.update(
+        {
+            "days": days,
+            "total_reports": total_reports,
+            "total_size": total_size,
+            "senders_table": senders_table,
+            "policy_table": policy_table,
+            "failures_table": failures_table,
+        }
     )
 
+    body_html = _env.get_template("weekly_summary.html").render(ctx)
+
     return AlertSummary(
-        title=f"Weekly Email Security Summary — {total_reports} reports",
+        title=f"Weekly Email Security Summary \u2014 {total_reports} reports",
         severity=severity,
-        body_markdown=body_md,
+        body_markdown="\n".join(md_lines),
         body_html=body_html,
     )
 
@@ -547,11 +418,7 @@ def send_teams_alert(alert: AlertSummary) -> None:
                             "text": alert.title,
                             "color": "Attention" if alert.severity != AlertSeverity.INFO else "Good",
                         },
-                        {
-                            "type": "TextBlock",
-                            "text": alert.body_markdown,
-                            "wrap": True,
-                        },
+                        {"type": "TextBlock", "text": alert.body_markdown, "wrap": True},
                         {
                             "type": "TextBlock",
                             "text": f"_{alert.timestamp:%Y-%m-%d %H:%M UTC}_",
