@@ -1,15 +1,28 @@
 {% extends "base.html" %}
-{% from "macros.html" import status_badge, data_table %}
+{% from "macros.html" import status_badge, bold, subtle %}
 
 {% block subtitle %}
-Reporter: <strong style='color:#e2e8f0'>{{ report.org_name|e }}</strong> &nbsp;&bull;&nbsp;
+Reporter: <strong style='color:#e2e8f0'>{{ report.org_name }}</strong> &nbsp;&bull;&nbsp;
 Period: <strong style='color:#e2e8f0'>{{ report.date_begin.strftime('%Y-%m-%d') }}</strong> to
 <strong style='color:#e2e8f0'>{{ report.date_end.strftime('%Y-%m-%d') }}</strong>
 {% endblock %}
 
 {% block content %}
-{{ data_table(
-  ["Domain", "Policy", "Result", "MX Host", "Failed", "Reason"],
-  policies_table
-) }}
+<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
+  <tr>
+    {% for h in ["Domain", "Policy", "Result", "MX Host", "Failed", "Reason"] %}
+    <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:#64748b;background:#f8fafc;border-bottom:2px solid #e2e8f0">{{ h }}</th>
+    {% endfor %}
+  </tr>
+  {% for row in policies %}
+  <tr style="background:{{ '#ffffff' if loop.index0 % 2 == 0 else '#f8fafc' }}">
+    <td style="padding:9px 12px;font-size:13px;color:#334155;border-bottom:1px solid #f1f5f9">{{ bold(row.domain) }}</td>
+    <td style="padding:9px 12px;font-size:13px;color:#334155;border-bottom:1px solid #f1f5f9">{{ row.policy_type }}</td>
+    <td style="padding:9px 12px;font-size:13px;color:#334155;border-bottom:1px solid #f1f5f9">{{ status_badge(row.result, pass_value="successful") }}</td>
+    <td style="padding:9px 12px;font-size:13px;color:#334155;border-bottom:1px solid #f1f5f9">{{ row.mx_host }}</td>
+    <td style="padding:9px 12px;font-size:13px;color:#334155;border-bottom:1px solid #f1f5f9">{{ bold(row.failed) }}</td>
+    <td style="padding:9px 12px;font-size:13px;color:#334155;border-bottom:1px solid #f1f5f9">{{ subtle(row.reason) }}</td>
+  </tr>
+  {% endfor %}
+</table>
 {% endblock %}

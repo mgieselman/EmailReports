@@ -6,7 +6,6 @@ them to Jinja2 templates for HTML rendering. No HTML is constructed here.
 
 from __future__ import annotations
 
-import html
 import logging
 import os
 from datetime import UTC, datetime
@@ -14,7 +13,6 @@ from pathlib import Path
 
 import requests
 from jinja2 import Environment, FileSystemLoader
-from markupsafe import Markup
 
 from graph_client import GraphClient
 from models import (
@@ -65,25 +63,8 @@ def _base_context(title: str, severity: AlertSeverity, stat_cards: list[dict]) -
     }
 
 
-def _safe(s: str) -> Markup:
-    """Mark a pre-escaped HTML string as safe for Jinja2 autoescape."""
-    return Markup(s)  # noqa: S704  # nosec B704
-
-
 def _card(value: str, label: str, color: str = "#1e293b") -> dict:
     return {"value": value, "label": label, "color": color}
-
-
-def _badge(result: str, pass_value: str = "pass") -> Markup:
-    """Render a pass/fail pill badge."""
-    is_pass = result.lower() == pass_value.lower()
-    bg = "#dcfce7" if is_pass else "#fee2e2"
-    fg = "#166534" if is_pass else "#991b1b"
-    return Markup(  # nosec B704
-        f'<span style="display:inline-block;padding:2px 10px;border-radius:12px;'
-        f"font-size:11px;font-weight:600;letter-spacing:0.5px;"
-        f'background:{bg};color:{fg}">{result.upper()}</span>'
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -124,20 +105,6 @@ def build_dmarc_alert(report: DmarcReport) -> AlertSummary:
                 f"| {r.source_ip} | {r.count} | {r.dkim_result.value} | {r.spf_result.value} | {r.header_from} |"
             )
 
-    # Table rows for template
-    records_table = []
-    for r in report.records[:50]:
-        records_table.append(
-            [
-                _safe(f'<span style="font-family:monospace;font-size:12px">{html.escape(r.source_ip)}</span>'),
-                _safe(f'<span style="font-weight:600">{r.count}</span>'),
-                _badge(r.dkim_result.value),
-                _badge(r.spf_result.value),
-                html.escape(r.header_from),
-                _safe(f'<span style="font-size:11px;color:#64748b">{html.escape(r.dkim_domain) or "\u2014"}</span>'),
-            ]
-        )
-
     ctx = _base_context(
         "DMARC Aggregate Report",
         severity,
@@ -150,7 +117,7 @@ def build_dmarc_alert(report: DmarcReport) -> AlertSummary:
         ],
     )
     ctx["report"] = report
-    ctx["records_table"] = records_table
+    ctx["records"] = report.records[:50]
 
     body_html = _env.get_template("dmarc_alert.html").render(ctx)
 
@@ -198,33 +165,31 @@ def build_tlsrpt_alert(report: TlsRptReport) -> AlertSummary:
                     f"| {fd.result_type} | {fd.receiving_mx_hostname} | {fd.failed_session_count} | {fd.failure_reason_code} |"
                 )
 
-    # Table rows for template
-    policies_table = []
+    # Flatten policies into row dicts for template
+    policies_rows = []
     for pol in report.policies:
         if pol.failure_details:
             for fd in pol.failure_details[:20]:
-                policies_table.append(
-                    [
-                        _safe(f'<span style="font-weight:600">{html.escape(str(pol.policy_domain))}</span>'),
-                        html.escape(pol.policy_type.upper()),
-                        _badge(fd.result_type, pass_value="successful"),
-                        html.escape(fd.receiving_mx_hostname),
-                        _safe(f'<span style="font-weight:600">{fd.failed_session_count}</span>'),
-                        _safe(
-                            f'<span style="font-size:11px;color:#64748b">{html.escape(fd.failure_reason_code)}</span>'
-                        ),
-                    ]
+                policies_rows.append(
+                    {
+                        "domain": str(pol.policy_domain),
+                        "policy_type": pol.policy_type.upper(),
+                        "result": fd.result_type,
+                        "mx_host": fd.receiving_mx_hostname,
+                        "failed": fd.failed_session_count,
+                        "reason": fd.failure_reason_code,
+                    }
                 )
         else:
-            policies_table.append(
-                [
-                    _safe(f'<span style="font-weight:600">{html.escape(str(pol.policy_domain))}</span>'),
-                    html.escape(pol.policy_type.upper()),
-                    _badge("successful", pass_value="successful"),
-                    "\u2014",
-                    "0",
-                    "\u2014",
-                ]
+            policies_rows.append(
+                {
+                    "domain": str(pol.policy_domain),
+                    "policy_type": pol.policy_type.upper(),
+                    "result": "successful",
+                    "mx_host": "\u2014",
+                    "failed": 0,
+                    "reason": "\u2014",
+                }
             )
 
     ctx = _base_context(
@@ -238,7 +203,7 @@ def build_tlsrpt_alert(report: TlsRptReport) -> AlertSummary:
         ],
     )
     ctx["report"] = report
-    ctx["policies_table"] = policies_table
+    ctx["policies"] = policies_rows
 
     body_html = _env.get_template("tlsrpt_alert.html").render(ctx)
 
@@ -318,43 +283,21 @@ def build_weekly_summary(records: list[ReportRecord], days: int = 7) -> AlertSum
         for org, vol in top_senders[:5]:
             md_lines.append(f"- {org}: {vol:,} messages")
 
-    # Table data for template
-    senders_table = []
+    # Structured data for template
+    senders = []
     for org, vol in top_senders:
         org_dmarc = sum(r.total_messages for r in dmarc if r.org_name == org)
         org_tls = sum(r.pass_count + r.fail_count for r in tlsrpt if r.org_name == org)
         org_fails = failure_orgs.get(org, 0)
-        fail_color = "#991b1b" if org_fails > 0 else "#166534"
-        senders_table.append(
-            [
-                _safe(f'<span style="font-weight:600">{html.escape(org)}</span>'),
-                f"{vol:,}",
-                f"{org_dmarc:,}",
-                f"{org_tls:,}",
-                _safe(f'<span style="color:{fail_color}">{org_fails:,}</span>'),
-            ]
-        )
+        senders.append({"org": org, "volume": vol, "dmarc": org_dmarc, "tls": org_tls, "fails": org_fails})
 
-    policy_table = []
+    policy_dist_data = []
     for pol, count in policy_dist:
         pct = f"{count / max(dmarc_messages, 1) * 100:.0f}%"
         color = "#166534" if pol == "reject" else "#b45309" if pol == "quarantine" else "#991b1b"
-        policy_table.append(
-            [
-                _safe(f'<span style="font-weight:600;color:{color}">{html.escape(pol.upper())}</span>'),
-                f"{count:,}",
-                pct,
-            ]
-        )
+        policy_dist_data.append({"policy": pol, "count": count, "pct": pct, "color": color})
 
-    failures_table = []
-    for org, count in top_failures:
-        failures_table.append(
-            [
-                _safe(f'<span style="font-weight:600">{html.escape(org)}</span>'),
-                _safe(f'<span style="color:#991b1b;font-weight:600">{count:,}</span>'),
-            ]
-        )
+    failures_data = [{"org": org, "count": count} for org, count in top_failures]
 
     ctx = _base_context(
         "Weekly Email Security Summary",
@@ -372,9 +315,9 @@ def build_weekly_summary(records: list[ReportRecord], days: int = 7) -> AlertSum
             "days": days,
             "total_reports": total_reports,
             "total_size": total_size,
-            "senders_table": senders_table,
-            "policy_table": policy_table,
-            "failures_table": failures_table,
+            "senders": senders,
+            "policy_dist": policy_dist_data,
+            "top_failures": failures_data,
         }
     )
 
@@ -402,7 +345,7 @@ def _format_bytes(size: int) -> str:
 # ---------------------------------------------------------------------------
 
 
-def send_teams_alert(alert: AlertSummary) -> None:
+def send_teams_alert(alert_summary: AlertSummary) -> None:
     webhook_url = os.environ.get("TEAMS_WEBHOOK_URL", "")
     if not webhook_url:
         logger.debug("TEAMS_WEBHOOK_URL not set; skipping Teams notification")
@@ -423,13 +366,13 @@ def send_teams_alert(alert: AlertSummary) -> None:
                             "type": "TextBlock",
                             "size": "Large",
                             "weight": "Bolder",
-                            "text": alert.title,
-                            "color": "Attention" if alert.severity != AlertSeverity.INFO else "Good",
+                            "text": alert_summary.title,
+                            "color": "Attention" if alert_summary.severity != AlertSeverity.INFO else "Good",
                         },
-                        {"type": "TextBlock", "text": alert.body_markdown, "wrap": True},
+                        {"type": "TextBlock", "text": alert_summary.body_markdown, "wrap": True},
                         {
                             "type": "TextBlock",
-                            "text": f"_{alert.timestamp:%Y-%m-%d %H:%M UTC}_",
+                            "text": f"_{alert_summary.timestamp:%Y-%m-%d %H:%M UTC}_",
                             "isSubtle": True,
                             "size": "Small",
                         },
@@ -441,32 +384,32 @@ def send_teams_alert(alert: AlertSummary) -> None:
 
     resp = requests.post(webhook_url, json=card, timeout=30)
     resp.raise_for_status()
-    logger.info("Teams alert sent: %s", alert.title)
+    logger.info("Teams alert sent: %s", alert_summary.title)
 
 
-def send_generic_webhook(alert: AlertSummary) -> None:
+def send_generic_webhook(alert_summary: AlertSummary) -> None:
     """POST alert as JSON to a generic webhook URL (Slack, Discord, n8n, etc.)."""
     webhook_url = os.environ.get("GENERIC_WEBHOOK_URL", "")
     if not webhook_url:
         return
 
     payload = {
-        "title": alert.title,
-        "severity": alert.severity.value,
-        "body": alert.body_markdown,
-        "timestamp": alert.timestamp.isoformat(),
+        "title": alert_summary.title,
+        "severity": alert_summary.severity.value,
+        "body": alert_summary.body_markdown,
+        "timestamp": alert_summary.timestamp.isoformat(),
     }
 
     resp = requests.post(webhook_url, json=payload, timeout=30)
     resp.raise_for_status()
-    logger.info("Generic webhook sent: %s", alert.title)
+    logger.info("Generic webhook sent: %s", alert_summary.title)
 
 
-def send_email_alert(alert: AlertSummary, graph: GraphClient) -> None:
+def send_email_alert(alert_summary: AlertSummary, graph: GraphClient) -> None:
     enabled = os.environ.get("ALERT_EMAIL_ENABLED", "false").lower() == "true"
     if not enabled:
         return
 
     from_addr = os.environ["ALERT_EMAIL_FROM"]
     to_addr = os.environ["ALERT_EMAIL_TO"]
-    graph.send_mail(from_addr, to_addr, alert.title, alert.body_html)
+    graph.send_mail(from_addr, to_addr, alert_summary.title, alert_summary.body_html)

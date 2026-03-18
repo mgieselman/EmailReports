@@ -384,21 +384,6 @@ class TestSendEmailAlert:
 
 
 class TestViewModelHelpers:
-    def test_badge_pass(self):
-        result = alert._badge("pass")
-        assert "PASS" in result
-        assert "#dcfce7" in result
-
-    def test_badge_fail(self):
-        result = alert._badge("fail")
-        assert "FAIL" in result
-        assert "#fee2e2" in result
-
-    def test_badge_custom_pass_value(self):
-        result = alert._badge("successful", pass_value="successful")
-        assert "SUCCESSFUL" in result
-        assert "#dcfce7" in result
-
     def test_card_returns_dict(self):
         card = alert._card("42", "Total", "#ff0000")
         assert card["value"] == "42"

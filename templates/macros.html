@@ -1,4 +1,4 @@
-{# Reusable macros for table rendering and badges #}
+{# Reusable macros for table rendering and styled elements #}
 
 {% macro status_badge(result, pass_value="pass") %}
 {%- set is_pass = result|lower == pass_value|lower -%}
@@ -29,7 +29,7 @@
 {%- endmacro %}
 
 {% macro mono(text) %}
-<span style="font-family:monospace;font-size:12px">{{ text|e }}</span>
+<span style="font-family:monospace;font-size:12px">{{ text }}</span>
 {%- endmacro %}
 
 {% macro bold(text) %}
@@ -37,9 +37,13 @@
 {%- endmacro %}
 
 {% macro subtle(text) %}
-<span style="font-size:11px;color:#64748b">{{ text|e }}</span>
+<span style="font-size:11px;color:#64748b">{{ text }}</span>
 {%- endmacro %}
 
 {% macro colored(text, color) %}
 <span style="color:{{ color }};font-weight:600">{{ text }}</span>
+{%- endmacro %}
+
+{% macro bold_colored(text, color) %}
+<span style="font-weight:600;color:{{ color }}">{{ text }}</span>
 {%- endmacro %}
