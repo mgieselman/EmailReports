@@ -13,6 +13,7 @@ from models import (
     DmarcRecord,
     DmarcReport,
     DmarcResult,
+    ReportRecord,
     TlsFailureDetail,
     TlsPolicy,
     TlsRptReport,
@@ -419,3 +420,107 @@ class TestHtmlHelpers:
         assert "row2" in html
         # Even rows white, odd rows light gray
         assert "#f8fafc" in html
+
+
+# ---------------------------------------------------------------------------
+# Weekly summary
+# ---------------------------------------------------------------------------
+
+
+def _report_record(report_type="dmarc", org="google.com", total=100, pass_c=95, fail_c=5, size=4000):
+    return ReportRecord(
+        report_type=report_type,
+        report_id=f"test-{org}-{total}",
+        org_name=org,
+        domain="example.com",
+        total_messages=total,
+        pass_count=pass_c,
+        fail_count=fail_c,
+        policy="reject" if report_type == "dmarc" else "",
+        attachment_size_bytes=size,
+    )
+
+
+class TestWeeklySummary:
+    def test_basic_summary(self):
+        records = [
+            _report_record("dmarc", "google.com", 100, 95, 5),
+            _report_record("dmarc", "microsoft.com", 50, 50, 0),
+            _report_record("tlsrpt", "google.com", 200, 198, 2),
+        ]
+        result = alert.build_weekly_summary(records, days=7)
+        assert "3 reports" in result.title
+        assert result.severity == AlertSeverity.WARNING
+
+    def test_all_passing_is_info(self):
+        records = [_report_record("dmarc", "google.com", 100, 100, 0)]
+        result = alert.build_weekly_summary(records)
+        assert result.severity == AlertSeverity.INFO
+
+    def test_high_failure_rate_is_critical(self):
+        records = [_report_record("dmarc", "google.com", 100, 50, 50)]
+        result = alert.build_weekly_summary(records)
+        assert result.severity == AlertSeverity.CRITICAL
+
+    def test_html_contains_dashboard(self):
+        records = [
+            _report_record("dmarc", "google.com", 100, 95, 5),
+            _report_record("tlsrpt", "yahoo.com", 50, 48, 2),
+        ]
+        result = alert.build_weekly_summary(records, days=7)
+        assert "Weekly Email Security Summary" in result.body_html
+        assert "Reporting Sources" in result.body_html
+        assert "google.com" in result.body_html
+        assert "yahoo.com" in result.body_html
+        assert "DMARC Messages" in result.body_html
+        assert "TLS Sessions" in result.body_html
+
+    def test_html_contains_policy_distribution(self):
+        records = [_report_record("dmarc", "google.com", 100, 95, 5)]
+        result = alert.build_weekly_summary(records)
+        assert "DMARC Policy Distribution" in result.body_html
+        assert "REJECT" in result.body_html
+
+    def test_html_contains_failure_sources(self):
+        records = [_report_record("dmarc", "spoofed.example.com", 10, 0, 10)]
+        result = alert.build_weekly_summary(records)
+        assert "Top Failure Sources" in result.body_html
+        assert "spoofed.example.com" in result.body_html
+
+    def test_no_failures_omits_failure_table(self):
+        records = [_report_record("dmarc", "google.com", 100, 100, 0)]
+        result = alert.build_weekly_summary(records)
+        assert "Top Failure Sources" not in result.body_html
+
+    def test_empty_records(self):
+        result = alert.build_weekly_summary([], days=7)
+        assert "0 reports" in result.title
+        assert result.severity == AlertSeverity.INFO
+
+    def test_markdown_output(self):
+        records = [
+            _report_record("dmarc", "google.com", 100, 95, 5),
+            _report_record("tlsrpt", "google.com", 50, 48, 2),
+        ]
+        result = alert.build_weekly_summary(records, days=7)
+        assert "**Total reports:**" in result.body_markdown
+        assert "**DMARC:**" in result.body_markdown
+        assert "**TLS-RPT:**" in result.body_markdown
+        assert "**Top Senders:**" in result.body_markdown
+
+
+class TestFormatBytes:
+    def test_bytes(self):
+        assert alert._format_bytes(500) == "500 B"
+
+    def test_kilobytes(self):
+        assert alert._format_bytes(2048) == "2.0 KB"
+
+    def test_megabytes(self):
+        assert alert._format_bytes(5 * 1024 * 1024) == "5.0 MB"
+
+    def test_zero(self):
+        assert alert._format_bytes(0) == "0 B"
+
+    def test_terabytes(self):
+        assert "TB" in alert._format_bytes(2 * 1024**4)

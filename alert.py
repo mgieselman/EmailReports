@@ -14,6 +14,7 @@ from models import (
     AlertSeverity,
     AlertSummary,
     DmarcReport,
+    ReportRecord,
     TlsRptReport,
 )
 
@@ -330,6 +331,191 @@ def build_tlsrpt_alert(report: TlsRptReport) -> AlertSummary:
         body_markdown=body_md,
         body_html=body_html,
     )
+
+
+# ---------------------------------------------------------------------------
+# Weekly summary
+# ---------------------------------------------------------------------------
+
+
+def build_weekly_summary(records: list[ReportRecord], days: int = 7) -> AlertSummary:
+    """Build a summary alert from accumulated report records."""
+    dmarc = [r for r in records if r.report_type == "dmarc"]
+    tlsrpt = [r for r in records if r.report_type == "tlsrpt"]
+
+    dmarc_reports = len(dmarc)
+    tlsrpt_reports = len(tlsrpt)
+    total_reports = dmarc_reports + tlsrpt_reports
+
+    dmarc_messages = sum(r.total_messages for r in dmarc)
+    dmarc_pass = sum(r.pass_count for r in dmarc)
+    dmarc_fail = sum(r.fail_count for r in dmarc)
+    dmarc_pass_rate = f"{dmarc_pass / max(dmarc_messages, 1) * 100:.1f}%"
+
+    tls_total = sum(r.pass_count + r.fail_count for r in tlsrpt)
+    tls_pass = sum(r.pass_count for r in tlsrpt)
+    tls_fail = sum(r.fail_count for r in tlsrpt)
+    tls_pass_rate = f"{tls_pass / max(tls_total, 1) * 100:.1f}%"
+
+    total_bytes = sum(r.attachment_size_bytes for r in records)
+    total_size = _format_bytes(total_bytes)
+
+    # Top senders by message volume
+    org_volumes: dict[str, int] = {}
+    for r in records:
+        org_volumes[r.org_name] = org_volumes.get(r.org_name, 0) + r.total_messages
+    top_senders = sorted(org_volumes.items(), key=lambda x: x[1], reverse=True)[:10]
+
+    # Policy distribution (DMARC only)
+    policy_counts: dict[str, int] = {}
+    for r in dmarc:
+        policy_counts[r.policy] = policy_counts.get(r.policy, 0) + r.total_messages
+    policy_dist = sorted(policy_counts.items(), key=lambda x: x[1], reverse=True)
+
+    # Top failure sources
+    failure_orgs: dict[str, int] = {}
+    for r in records:
+        if r.fail_count > 0:
+            failure_orgs[r.org_name] = failure_orgs.get(r.org_name, 0) + r.fail_count
+    top_failures = sorted(failure_orgs.items(), key=lambda x: x[1], reverse=True)[:10]
+
+    # Severity
+    total_fail = dmarc_fail + tls_fail
+    total_all = dmarc_messages + tls_total
+    if total_fail == 0:
+        severity = AlertSeverity.INFO
+    elif total_fail / max(total_all, 1) > 0.1:
+        severity = AlertSeverity.CRITICAL
+    else:
+        severity = AlertSeverity.WARNING
+
+    # Markdown (for Teams)
+    md_lines = [
+        f"**Period:** Last {days} days",
+        f"**Total reports:** {total_reports} ({dmarc_reports} DMARC, {tlsrpt_reports} TLS-RPT)",
+        f"**Attachment volume:** {total_size}",
+        "",
+        f"**DMARC:** {dmarc_messages} messages — {dmarc_pass} pass, {dmarc_fail} fail ({dmarc_pass_rate})",
+        f"**TLS-RPT:** {tls_total} sessions — {tls_pass} pass, {tls_fail} fail ({tls_pass_rate})",
+    ]
+    if top_senders:
+        md_lines.extend(["", "**Top Senders:**"])
+        for org, vol in top_senders[:5]:
+            md_lines.append(f"- {org}: {vol:,} messages")
+    body_md = "\n".join(md_lines)
+
+    # HTML dashboard
+    subtitle = (
+        f"Period: <strong style='color:#e2e8f0'>Last {days} days</strong> &nbsp;&bull;&nbsp; "
+        f"Reports: <strong style='color:#e2e8f0'>{total_reports}</strong> &nbsp;&bull;&nbsp; "
+        f"Attachments: <strong style='color:#e2e8f0'>{total_size}</strong>"
+    )
+
+    stat_cards = (
+        _stat_card(str(total_reports), "Reports")
+        + _stat_card(str(dmarc_messages), "DMARC Messages")
+        + _stat_card(dmarc_pass_rate, "DMARC Pass Rate", "#166534" if dmarc_fail == 0 else "#b45309")
+        + _stat_card(str(tls_total), "TLS Sessions")
+        + _stat_card(tls_pass_rate, "TLS Pass Rate", "#166534" if tls_fail == 0 else "#b45309")
+    )
+
+    # Senders table
+    sender_rows = []
+    for org, vol in top_senders:
+        org_dmarc = sum(r.total_messages for r in dmarc if r.org_name == org)
+        org_tls = sum(r.pass_count + r.fail_count for r in tlsrpt if r.org_name == org)
+        org_fails = failure_orgs.get(org, 0)
+        sender_rows.append(
+            [
+                f'<span style="font-weight:600">{html.escape(org)}</span>',
+                f"{vol:,}",
+                f"{org_dmarc:,}",
+                f"{org_tls:,}",
+                f'<span style="color:{"#991b1b" if org_fails > 0 else "#166534"}">{org_fails:,}</span>',
+            ]
+        )
+
+    sender_table = _build_table(
+        ["Reporter", "Total Volume", "DMARC", "TLS-RPT", "Failures"],
+        sender_rows,
+    )
+
+    # Policy table
+    policy_rows = []
+    for pol, count in policy_dist:
+        pct = f"{count / max(dmarc_messages, 1) * 100:.0f}%"
+        color = "#166534" if pol == "reject" else "#b45309" if pol == "quarantine" else "#991b1b"
+        policy_rows.append(
+            [
+                f'<span style="font-weight:600;color:{color}">{html.escape(pol.upper())}</span>',
+                f"{count:,}",
+                pct,
+            ]
+        )
+
+    policy_table = _build_table(["Policy", "Messages", "Share"], policy_rows) if policy_rows else ""
+
+    # Combine tables
+    tables_html = f"""
+    <div style="margin-bottom:16px">
+      <div style="font-size:13px;font-weight:600;color:#1e293b;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">
+        Reporting Sources
+      </div>
+      {sender_table}
+    </div>"""
+
+    if policy_table:
+        tables_html += f"""
+    <div style="margin-bottom:16px">
+      <div style="font-size:13px;font-weight:600;color:#1e293b;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">
+        DMARC Policy Distribution
+      </div>
+      {policy_table}
+    </div>"""
+
+    # Top failures table
+    if top_failures:
+        fail_rows = []
+        for org, count in top_failures:
+            fail_rows.append(
+                [
+                    f'<span style="font-weight:600">{html.escape(org)}</span>',
+                    f'<span style="color:#991b1b;font-weight:600">{count:,}</span>',
+                ]
+            )
+        fail_table = _build_table(["Source", "Failures"], fail_rows)
+        tables_html += f"""
+    <div>
+      <div style="font-size:13px;font-weight:600;color:#1e293b;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">
+        Top Failure Sources
+      </div>
+      {fail_table}
+    </div>"""
+
+    body_html = _wrap_dashboard(
+        title="Weekly Email Security Summary",
+        severity=severity,
+        subtitle=subtitle,
+        stat_cards_html=stat_cards,
+        table_html=tables_html,
+        timestamp=f"{datetime.now(UTC):%Y-%m-%d %H:%M} UTC",
+    )
+
+    return AlertSummary(
+        title=f"Weekly Email Security Summary — {total_reports} reports",
+        severity=severity,
+        body_markdown=body_md,
+        body_html=body_html,
+    )
+
+
+def _format_bytes(size: int) -> str:
+    n = float(size)
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024:
+            return f"{n:.1f} {unit}" if unit != "B" else f"{int(n)} B"
+        n /= 1024
+    return f"{n:.1f} TB"
 
 
 # ---------------------------------------------------------------------------

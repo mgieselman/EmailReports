@@ -531,3 +531,154 @@ class TestProcessEmailReports:
         from function_app import _validate_config
 
         _validate_config()  # should not raise with env defaults from conftest
+
+
+# ---------------------------------------------------------------------------
+# Weekly summary timer
+# ---------------------------------------------------------------------------
+
+
+class TestWeeklySummary:
+    @patch("function_app.storage")
+    @patch("function_app.alert")
+    @patch("function_app.GraphClient")
+    def test_skips_when_disabled(self, MockGraphClient, mock_alert, mock_storage, monkeypatch):
+        monkeypatch.setenv("SUMMARY_ENABLED", "false")
+
+        from function_app import send_weekly_summary
+
+        timer = MagicMock()
+        send_weekly_summary(timer)
+
+        mock_storage.query_period.assert_not_called()
+
+    @patch("function_app.storage")
+    @patch("function_app.alert")
+    @patch("function_app.GraphClient")
+    def test_sends_when_enabled(self, MockGraphClient, mock_alert, mock_storage, monkeypatch):
+        monkeypatch.setenv("SUMMARY_ENABLED", "true")
+        monkeypatch.setenv("SUMMARY_DAYS", "7")
+
+        from models import ReportRecord
+
+        mock_storage.query_period.return_value = [
+            ReportRecord(report_type="dmarc", report_id="1", org_name="google.com", domain="test.com")
+        ]
+
+        mock_client = MagicMock()
+        MockGraphClient.return_value.__enter__ = MagicMock(return_value=mock_client)
+        MockGraphClient.return_value.__exit__ = MagicMock(return_value=False)
+
+        from function_app import send_weekly_summary
+
+        timer = MagicMock()
+        send_weekly_summary(timer)
+
+        mock_storage.query_period.assert_called_once_with(days=7)
+        mock_alert.build_weekly_summary.assert_called_once()
+        mock_alert.send_teams_alert.assert_called()
+        mock_alert.send_email_alert.assert_called()
+
+    @patch("function_app.storage")
+    @patch("function_app.alert")
+    @patch("function_app.GraphClient")
+    def test_skips_when_no_records(self, MockGraphClient, mock_alert, mock_storage, monkeypatch):
+        monkeypatch.setenv("SUMMARY_ENABLED", "true")
+        mock_storage.query_period.return_value = []
+
+        from function_app import send_weekly_summary
+
+        timer = MagicMock()
+        send_weekly_summary(timer)
+
+        mock_alert.build_weekly_summary.assert_not_called()
+
+    @patch("function_app._send_error_notification")
+    @patch("function_app.storage")
+    @patch("function_app.alert")
+    @patch("function_app.GraphClient")
+    def test_error_sends_notification(self, MockGraphClient, mock_alert, mock_storage, mock_notify, monkeypatch):
+        monkeypatch.setenv("SUMMARY_ENABLED", "true")
+        mock_storage.query_period.side_effect = RuntimeError("storage down")
+
+        import pytest
+
+        from function_app import send_weekly_summary
+
+        timer = MagicMock()
+        with pytest.raises(RuntimeError, match="storage down"):
+            send_weekly_summary(timer)
+
+        mock_notify.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# _save_report
+# ---------------------------------------------------------------------------
+
+
+class TestSaveReport:
+    @patch("function_app.storage")
+    def test_saves_dmarc_report(self, mock_storage):
+        from models import DmarcDisposition, DmarcReport
+
+        report = DmarcReport(
+            org_name="google.com",
+            report_id="test-1",
+            date_begin=MagicMock(),
+            date_end=MagicMock(),
+            domain="test.com",
+            policy=DmarcDisposition.REJECT,
+        )
+
+        from function_app import _save_report
+
+        _save_report(report, base64.b64encode(b"test-data").decode())
+        mock_storage.save_report_record.assert_called_once()
+        record = mock_storage.save_report_record.call_args[0][0]
+        assert record.report_type == "dmarc"
+        assert record.org_name == "google.com"
+
+    @patch("function_app.storage")
+    def test_saves_tlsrpt_report(self, mock_storage):
+        from models import TlsPolicy, TlsRptReport
+
+        report = TlsRptReport(
+            org_name="microsoft.com",
+            report_id="tls-1",
+            date_begin=MagicMock(),
+            date_end=MagicMock(),
+            policies=[
+                TlsPolicy(
+                    policy_type="sts", policy_domain="test.com", successful_session_count=100, failed_session_count=2
+                )
+            ],
+        )
+
+        from function_app import _save_report
+
+        _save_report(report, base64.b64encode(b"test-data").decode())
+        mock_storage.save_report_record.assert_called_once()
+        record = mock_storage.save_report_record.call_args[0][0]
+        assert record.report_type == "tlsrpt"
+        assert record.pass_count == 100
+        assert record.fail_count == 2
+
+    @patch("function_app.storage")
+    def test_save_failure_does_not_raise(self, mock_storage):
+        mock_storage.save_report_record.side_effect = Exception("storage down")
+
+        from models import DmarcDisposition, DmarcReport
+
+        report = DmarcReport(
+            org_name="test",
+            report_id="1",
+            date_begin=MagicMock(),
+            date_end=MagicMock(),
+            domain="test.com",
+            policy=DmarcDisposition.NONE,
+        )
+
+        from function_app import _save_report
+
+        _save_report(report, base64.b64encode(b"data").decode())  # should not raise

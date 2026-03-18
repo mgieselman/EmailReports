@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+from base64 import b64decode
 from collections.abc import Callable
 from typing import Any
 
@@ -12,9 +13,10 @@ import azure.functions as func
 import alert
 import dmarc_parser
 import models
+import storage
 import tlsrpt_parser
 from graph_client import GraphClient
-from models import AlertSummary
+from models import AlertSummary, DmarcReport, ReportRecord, TlsRptReport
 
 app = func.FunctionApp()
 logger = logging.getLogger(__name__)
@@ -28,6 +30,11 @@ def _validate_config() -> None:
     missing = [v for v in _REQUIRED_ENV_VARS if not os.environ.get(v)]
     if missing:
         raise RuntimeError(f"Missing required environment variables: {', '.join(missing)}")
+
+
+# ---------------------------------------------------------------------------
+# Main timer: process reports every 30 minutes
+# ---------------------------------------------------------------------------
 
 
 @app.timer_trigger(
@@ -128,6 +135,50 @@ def _run() -> None:
             raise RuntimeError(f"{errors} message(s) failed to process")
 
 
+# ---------------------------------------------------------------------------
+# Summary timer: weekly digest
+# ---------------------------------------------------------------------------
+
+
+@app.timer_trigger(
+    schedule="%SUMMARY_SCHEDULE_CRON%",
+    arg_name="timer",
+    run_on_startup=False,
+)
+def send_weekly_summary(timer: func.TimerRequest) -> None:
+    """Send a periodic summary email of all processed reports."""
+    enabled = os.environ.get("SUMMARY_ENABLED", "false").lower() == "true"
+    if not enabled:
+        logger.debug("Summary not enabled; skipping")
+        return
+
+    summary_days = int(os.environ.get("SUMMARY_DAYS", "7"))
+
+    try:
+        records = storage.query_period(days=summary_days)
+        if not records:
+            logger.info("No report records found for the last %d days; skipping summary", summary_days)
+            return
+
+        summary = alert.build_weekly_summary(records, days=summary_days)
+
+        with GraphClient() as graph:
+            alert.send_teams_alert(summary)
+            alert.send_generic_webhook(summary)
+            alert.send_email_alert(summary, graph)
+
+        logger.info("Weekly summary sent — %d records over %d days", len(records), summary_days)
+    except Exception:
+        logger.exception("Failed to send weekly summary")
+        _send_error_notification()
+        raise
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
 def _send_error_notification() -> None:
     """Best-effort error notification through available channels."""
     import traceback
@@ -172,7 +223,7 @@ def _parse_attachments(
     parser: Callable[[str, str], Any],
     alert_builder: Callable[[Any], AlertSummary],
 ) -> list[AlertSummary]:
-    """Parse attachments using the given parser and build alerts."""
+    """Parse attachments using the given parser and build alerts. Saves records to storage."""
     alerts: list[AlertSummary] = []
     for att in attachments:
         name = att.get("name", "")
@@ -183,4 +234,39 @@ def _parse_attachments(
         if report:
             logger.info("Parsed report %s from '%s'", report.report_id, subject)
             alerts.append(alert_builder(report))
+            _save_report(report, content_b64)
     return alerts
+
+
+def _save_report(report: DmarcReport | TlsRptReport, content_b64: str) -> None:
+    """Best-effort save of report metadata to Table Storage."""
+    try:
+        att_size = len(b64decode(content_b64))
+        if isinstance(report, DmarcReport):
+            fail_count = sum(r.count for r in report.failing_records)
+            record = ReportRecord(
+                report_type="dmarc",
+                report_id=report.report_id,
+                org_name=report.org_name,
+                domain=report.domain,
+                total_messages=report.total_messages,
+                pass_count=report.total_messages - fail_count,
+                fail_count=fail_count,
+                policy=report.policy.value,
+                attachment_size_bytes=att_size,
+            )
+        else:
+            record = ReportRecord(
+                report_type="tlsrpt",
+                report_id=report.report_id,
+                org_name=report.org_name,
+                domain="",
+                total_messages=report.total_successful + report.total_failures,
+                pass_count=report.total_successful,
+                fail_count=report.total_failures,
+                policy="",
+                attachment_size_bytes=att_size,
+            )
+        storage.save_report_record(record)
+    except Exception:
+        logger.warning("Failed to save report record to storage", exc_info=True)

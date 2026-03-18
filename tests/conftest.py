@@ -42,6 +42,10 @@ def _env_defaults(monkeypatch):
         "DELETE_AFTER_DAYS": "-1",
         "MOVE_PROCESSED_TO": "",
         "TIMER_SCHEDULE_CRON": "0 */30 * * * *",
+        "SUMMARY_ENABLED": "false",
+        "SUMMARY_SCHEDULE_CRON": "0 0 9 * * 1",
+        "SUMMARY_DAYS": "7",
+        "AzureWebJobsStorage": "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=dGVzdA==",
     }
     for k, v in defaults.items():
         monkeypatch.setenv(k, v)

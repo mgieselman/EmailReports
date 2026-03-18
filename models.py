@@ -99,6 +99,30 @@ class TlsRptReport:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Report tracking (for weekly summaries)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ReportRecord:
+    report_type: str  # "dmarc" or "tlsrpt"
+    report_id: str
+    org_name: str
+    domain: str
+    total_messages: int = 0
+    pass_count: int = 0
+    fail_count: int = 0
+    policy: str = ""
+    attachment_size_bytes: int = 0
+    received_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+
+# ---------------------------------------------------------------------------
+# Alerting
+# ---------------------------------------------------------------------------
+
+
 class AlertSeverity(StrEnum):
     INFO = "info"
     WARNING = "warning"
