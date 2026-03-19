@@ -39,6 +39,8 @@ def save_report_record(record: ReportRecord) -> None:
         "policy": record.policy,
         "attachment_size_bytes": record.attachment_size_bytes,
         "received_at": record.received_at,
+        "dmarc_failure_details_json": record.dmarc_failure_details_json,
+        "tls_failure_details_json": record.tls_failure_details_json,
     }
     table.upsert_entity(entity)
     logger.debug("Saved report record: %s/%s", year_week, entity["RowKey"])
@@ -68,6 +70,8 @@ def query_period(days: int = 7) -> list[ReportRecord]:
                 policy=e.get("policy", ""),
                 attachment_size_bytes=e.get("attachment_size_bytes", 0),
                 received_at=received,
+                dmarc_failure_details_json=e.get("dmarc_failure_details_json", ""),
+                tls_failure_details_json=e.get("tls_failure_details_json", ""),
             )
         )
     return records

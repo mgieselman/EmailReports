@@ -240,10 +240,23 @@ def _parse_attachments(
 
 def _save_report(report: DmarcReport | TlsRptReport, content_b64: str) -> None:
     """Best-effort save of report metadata to Table Storage."""
+    import json
+
     try:
         att_size = len(b64decode(content_b64))
         if isinstance(report, DmarcReport):
             fail_count = sum(r.count for r in report.failing_records)
+            dmarc_failures = [
+                {
+                    "source_ip": r.source_ip,
+                    "count": r.count,
+                    "disposition": r.disposition.value,
+                    "dkim_result": r.dkim_result.value,
+                    "spf_result": r.spf_result.value,
+                    "header_from": r.header_from,
+                }
+                for r in report.failing_records[:50]
+            ]
             record = ReportRecord(
                 report_type="dmarc",
                 report_id=report.report_id,
@@ -254,8 +267,20 @@ def _save_report(report: DmarcReport | TlsRptReport, content_b64: str) -> None:
                 fail_count=fail_count,
                 policy=report.policy.value,
                 attachment_size_bytes=att_size,
+                dmarc_failure_details_json=json.dumps(dmarc_failures) if dmarc_failures else "",
             )
         else:
+            tls_failures = [
+                {
+                    "result_type": fd.result_type,
+                    "sending_mta_ip": fd.sending_mta_ip,
+                    "receiving_mx_hostname": fd.receiving_mx_hostname,
+                    "failed_session_count": fd.failed_session_count,
+                    "failure_reason_code": fd.failure_reason_code,
+                }
+                for pol in report.policies
+                for fd in pol.failure_details[:20]
+            ][:50]
             record = ReportRecord(
                 report_type="tlsrpt",
                 report_id=report.report_id,
@@ -266,6 +291,7 @@ def _save_report(report: DmarcReport | TlsRptReport, content_b64: str) -> None:
                 fail_count=report.total_failures,
                 policy="",
                 attachment_size_bytes=att_size,
+                tls_failure_details_json=json.dumps(tls_failures) if tls_failures else "",
             )
         storage.save_report_record(record)
     except Exception:

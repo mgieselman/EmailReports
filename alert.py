@@ -6,6 +6,7 @@ them to Jinja2 templates for HTML rendering. No HTML is constructed here.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from datetime import UTC, datetime
@@ -299,6 +300,48 @@ def build_weekly_summary(records: list[ReportRecord], days: int = 7) -> AlertSum
 
     failures_data = [{"org": org, "count": count} for org, count in top_failures]
 
+    # Aggregate DMARC failure details across all records
+    dmarc_failure_agg: dict[tuple[str, str], dict] = {}
+    for r in dmarc:
+        if r.dmarc_failure_details_json:
+            for fd in json.loads(r.dmarc_failure_details_json):
+                key = (fd["source_ip"], fd["header_from"])
+                if key in dmarc_failure_agg:
+                    dmarc_failure_agg[key]["count"] += fd["count"]
+                else:
+                    dmarc_failure_agg[key] = {**fd}
+    dmarc_failures_data = sorted(dmarc_failure_agg.values(), key=lambda x: x["count"], reverse=True)[:20]
+
+    # Aggregate TLS failure details across all records
+    tls_failure_agg: dict[tuple[str, str, str], dict] = {}
+    for r in tlsrpt:
+        if r.tls_failure_details_json:
+            for fd in json.loads(r.tls_failure_details_json):
+                tls_key = (fd["result_type"], fd["receiving_mx_hostname"], fd["failure_reason_code"])
+                if tls_key in tls_failure_agg:
+                    tls_failure_agg[tls_key]["failed_session_count"] += fd["failed_session_count"]
+                else:
+                    tls_failure_agg[tls_key] = {**fd}
+    tls_failures_data = sorted(tls_failure_agg.values(), key=lambda x: x["failed_session_count"], reverse=True)[:20]
+
+    if dmarc_failures_data:
+        md_lines.extend(["", "**DMARC Failure Details:**"])
+        md_lines.append("| Source IP | Count | DKIM | SPF | Header From |")
+        md_lines.append("|-----------|------:|------|-----|-------------|")
+        for fd in dmarc_failures_data[:10]:
+            md_lines.append(
+                f"| {fd['source_ip']} | {fd['count']} | {fd['dkim_result']} | {fd['spf_result']} | {fd['header_from']} |"
+            )
+
+    if tls_failures_data:
+        md_lines.extend(["", "**TLS-RPT Failure Details:**"])
+        md_lines.append("| Result Type | MX Host | Failed | Reason |")
+        md_lines.append("|-------------|---------|-------:|--------|")
+        for fd in tls_failures_data[:10]:
+            md_lines.append(
+                f"| {fd['result_type']} | {fd['receiving_mx_hostname']} | {fd['failed_session_count']} | {fd['failure_reason_code'] or '—'} |"
+            )
+
     ctx = _base_context(
         "Weekly Email Security Summary",
         severity,
@@ -318,6 +361,8 @@ def build_weekly_summary(records: list[ReportRecord], days: int = 7) -> AlertSum
             "senders": senders,
             "policy_dist": policy_dist_data,
             "top_failures": failures_data,
+            "dmarc_failures": dmarc_failures_data,
+            "tls_failures": tls_failures_data,
         }
     )
 

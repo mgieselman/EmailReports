@@ -638,6 +638,43 @@ class TestSaveReport:
         record = mock_storage.save_report_record.call_args[0][0]
         assert record.report_type == "dmarc"
         assert record.org_name == "google.com"
+        assert record.dmarc_failure_details_json == ""
+
+    @patch("function_app.storage")
+    def test_saves_dmarc_failure_details(self, mock_storage):
+        import json
+
+        from models import DmarcDisposition, DmarcRecord, DmarcReport, DmarcResult
+
+        report = DmarcReport(
+            org_name="google.com",
+            report_id="test-fail",
+            date_begin=MagicMock(),
+            date_end=MagicMock(),
+            domain="test.com",
+            policy=DmarcDisposition.REJECT,
+            records=[
+                DmarcRecord(
+                    source_ip="5.6.7.8",
+                    count=3,
+                    disposition=DmarcDisposition.NONE,
+                    dkim_result=DmarcResult.FAIL,
+                    spf_result=DmarcResult.FAIL,
+                    header_from="test.com",
+                )
+            ],
+        )
+
+        from function_app import _save_report
+
+        _save_report(report, base64.b64encode(b"test-data").decode())
+        record = mock_storage.save_report_record.call_args[0][0]
+        details = json.loads(record.dmarc_failure_details_json)
+        assert len(details) == 1
+        assert details[0]["source_ip"] == "5.6.7.8"
+        assert details[0]["count"] == 3
+        assert details[0]["dkim_result"] == "fail"
+        assert details[0]["spf_result"] == "fail"
 
     @patch("function_app.storage")
     def test_saves_tlsrpt_report(self, mock_storage):
@@ -663,6 +700,46 @@ class TestSaveReport:
         assert record.report_type == "tlsrpt"
         assert record.pass_count == 100
         assert record.fail_count == 2
+        assert record.tls_failure_details_json == ""
+
+    @patch("function_app.storage")
+    def test_saves_tlsrpt_failure_details(self, mock_storage):
+        import json
+
+        from models import TlsFailureDetail, TlsPolicy, TlsRptReport
+
+        report = TlsRptReport(
+            org_name="google.com",
+            report_id="tls-fail",
+            date_begin=MagicMock(),
+            date_end=MagicMock(),
+            policies=[
+                TlsPolicy(
+                    policy_type="sts",
+                    policy_domain="test.com",
+                    successful_session_count=9,
+                    failed_session_count=1,
+                    failure_details=[
+                        TlsFailureDetail(
+                            result_type="sts-policy-fetch-error",
+                            sending_mta_ip="1.2.3.4",
+                            receiving_mx_hostname="mail.test.com",
+                            failed_session_count=1,
+                            failure_reason_code="",
+                        )
+                    ],
+                )
+            ],
+        )
+
+        from function_app import _save_report
+
+        _save_report(report, base64.b64encode(b"test-data").decode())
+        record = mock_storage.save_report_record.call_args[0][0]
+        details = json.loads(record.tls_failure_details_json)
+        assert len(details) == 1
+        assert details[0]["result_type"] == "sts-policy-fetch-error"
+        assert details[0]["receiving_mx_hostname"] == "mail.test.com"
 
     @patch("function_app.storage")
     def test_save_failure_does_not_raise(self, mock_storage):

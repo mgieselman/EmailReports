@@ -49,6 +49,29 @@ class TestSaveReportRecord:
         assert entity["total_messages"] == 100
         assert entity["PartitionKey"] == "2026-W11"
         assert "dmarc_test-123" in entity["RowKey"]
+        assert entity["dmarc_failure_details_json"] == ""
+        assert entity["tls_failure_details_json"] == ""
+
+    @patch("storage._get_table_client")
+    def test_saves_failure_details_json(self, mock_get_client):
+        mock_table = MagicMock()
+        mock_get_client.return_value = mock_table
+
+        record = ReportRecord(
+            report_type="dmarc",
+            report_id="test-456",
+            org_name="google.com",
+            domain="example.com",
+            total_messages=10,
+            pass_count=8,
+            fail_count=2,
+            received_at=datetime(2026, 3, 17, tzinfo=UTC),
+            dmarc_failure_details_json='[{"source_ip":"1.2.3.4","count":2}]',
+        )
+        storage.save_report_record(record)
+
+        entity = mock_table.upsert_entity.call_args[0][0]
+        assert entity["dmarc_failure_details_json"] == '[{"source_ip":"1.2.3.4","count":2}]'
 
 
 class TestQueryPeriod:
@@ -68,6 +91,8 @@ class TestQueryPeriod:
                 "policy": "reject",
                 "attachment_size_bytes": 4000,
                 "received_at": datetime(2026, 3, 17, tzinfo=UTC),
+                "dmarc_failure_details_json": '[{"source_ip":"1.2.3.4"}]',
+                "tls_failure_details_json": "",
             }
         ]
         mock_get_client.return_value = mock_table
@@ -76,6 +101,26 @@ class TestQueryPeriod:
         assert len(records) == 1
         assert records[0].org_name == "google.com"
         assert records[0].report_id == "test-1"
+        assert records[0].dmarc_failure_details_json == '[{"source_ip":"1.2.3.4"}]'
+        assert records[0].tls_failure_details_json == ""
+
+    @patch("storage._get_table_client")
+    def test_missing_json_fields_default_to_empty(self, mock_get_client):
+        """Old records without failure detail fields should get empty strings."""
+        mock_table = MagicMock()
+        mock_table.query_entities.return_value = [
+            {
+                "RowKey": "dmarc_old-1",
+                "report_type": "dmarc",
+                "org_name": "old.com",
+                "received_at": datetime(2026, 3, 17, tzinfo=UTC),
+            }
+        ]
+        mock_get_client.return_value = mock_table
+
+        records = storage.query_period(days=7)
+        assert records[0].dmarc_failure_details_json == ""
+        assert records[0].tls_failure_details_json == ""
 
     @patch("storage._get_table_client")
     def test_empty_result(self, mock_get_client):

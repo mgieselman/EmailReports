@@ -116,6 +116,8 @@ class ReportRecord:
     policy: str = ""
     attachment_size_bytes: int = 0
     received_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    dmarc_failure_details_json: str = ""
+    tls_failure_details_json: str = ""
 
 
 # ---------------------------------------------------------------------------

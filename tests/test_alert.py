@@ -406,7 +406,16 @@ class TestViewModelHelpers:
 # ---------------------------------------------------------------------------
 
 
-def _report_record(report_type="dmarc", org="google.com", total=100, pass_c=95, fail_c=5, size=4000):
+def _report_record(
+    report_type="dmarc",
+    org="google.com",
+    total=100,
+    pass_c=95,
+    fail_c=5,
+    size=4000,
+    dmarc_failure_details_json="",
+    tls_failure_details_json="",
+):
     return ReportRecord(
         report_type=report_type,
         report_id=f"test-{org}-{total}",
@@ -417,6 +426,8 @@ def _report_record(report_type="dmarc", org="google.com", total=100, pass_c=95, 
         fail_count=fail_c,
         policy="reject" if report_type == "dmarc" else "",
         attachment_size_bytes=size,
+        dmarc_failure_details_json=dmarc_failure_details_json,
+        tls_failure_details_json=tls_failure_details_json,
     )
 
 
@@ -486,6 +497,99 @@ class TestWeeklySummary:
         assert "**DMARC:**" in result.body_markdown
         assert "**TLS-RPT:**" in result.body_markdown
         assert "**Top Senders:**" in result.body_markdown
+
+    def test_dmarc_failure_details_in_html(self):
+        import json
+
+        details = json.dumps(
+            [
+                {
+                    "source_ip": "5.6.7.8",
+                    "count": 3,
+                    "disposition": "none",
+                    "dkim_result": "fail",
+                    "spf_result": "fail",
+                    "header_from": "spoofed.com",
+                }
+            ]
+        )
+        records = [_report_record("dmarc", "attacker.com", 10, 7, 3, dmarc_failure_details_json=details)]
+        result = alert.build_weekly_summary(records, days=7)
+        assert "DMARC Failure Details" in result.body_html
+        assert "5.6.7.8" in result.body_html
+        assert "spoofed.com" in result.body_html
+        assert "DMARC Failure Details" in result.body_markdown
+
+    def test_tls_failure_details_in_html(self):
+        import json
+
+        details = json.dumps(
+            [
+                {
+                    "result_type": "sts-policy-fetch-error",
+                    "sending_mta_ip": "1.2.3.4",
+                    "receiving_mx_hostname": "mail.test.com",
+                    "failed_session_count": 1,
+                    "failure_reason_code": "",
+                }
+            ]
+        )
+        records = [_report_record("tlsrpt", "google.com", 10, 9, 1, tls_failure_details_json=details)]
+        result = alert.build_weekly_summary(records, days=7)
+        assert "TLS-RPT Failure Details" in result.body_html
+        assert "sts-policy-fetch-error" in result.body_html.lower()
+        assert "mail.test.com" in result.body_html
+        assert "TLS-RPT Failure Details" in result.body_markdown
+
+    def test_no_failure_details_omits_sections(self):
+        records = [_report_record("dmarc", "google.com", 100, 100, 0)]
+        result = alert.build_weekly_summary(records)
+        assert "DMARC Failure Details" not in result.body_html
+        assert "TLS-RPT Failure Details" not in result.body_html
+
+    def test_failure_details_aggregated_across_records(self):
+        import json
+
+        fd = {
+            "source_ip": "1.1.1.1",
+            "count": 2,
+            "disposition": "none",
+            "dkim_result": "fail",
+            "spf_result": "fail",
+            "header_from": "x.com",
+        }
+        fd2 = {**fd, "count": 3}
+        details1 = json.dumps([fd])
+        details2 = json.dumps([fd2])
+        records = [
+            _report_record("dmarc", "a.com", 10, 8, 2, dmarc_failure_details_json=details1),
+            _report_record("dmarc", "b.com", 10, 7, 3, dmarc_failure_details_json=details2),
+        ]
+        result = alert.build_weekly_summary(records, days=7)
+        # Aggregated count should be 5 (2+3)
+        assert "DMARC Failure Details" in result.body_html
+        assert "1.1.1.1" in result.body_html
+
+    def test_tls_failure_details_aggregated_across_records(self):
+        import json
+
+        fd = {
+            "result_type": "certificate-expired",
+            "sending_mta_ip": "1.2.3.4",
+            "receiving_mx_hostname": "mx.test.com",
+            "failed_session_count": 2,
+            "failure_reason_code": "",
+        }
+        fd2 = {**fd, "failed_session_count": 3}
+        details1 = json.dumps([fd])
+        details2 = json.dumps([fd2])
+        records = [
+            _report_record("tlsrpt", "a.com", 10, 8, 2, tls_failure_details_json=details1),
+            _report_record("tlsrpt", "b.com", 10, 7, 3, tls_failure_details_json=details2),
+        ]
+        result = alert.build_weekly_summary(records, days=7)
+        assert "TLS-RPT Failure Details" in result.body_html
+        assert "mx.test.com" in result.body_html
 
 
 class TestFormatBytes:
