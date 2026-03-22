@@ -121,7 +121,8 @@ def _run() -> None:
             try:
                 alert.send_teams_alert(a)
                 alert.send_generic_webhook(a)
-                alert.send_email_alert(a, graph)
+                if a.severity != models.AlertSeverity.INFO:
+                    alert.send_email_alert(a, graph)
             except Exception:
                 logger.exception("Failed to deliver alert: %s", a.title)
 

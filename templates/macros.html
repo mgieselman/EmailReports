@@ -4,7 +4,7 @@
 {%- set is_pass = result|lower == pass_value|lower -%}
 {%- set bg = "#dcfce7" if is_pass else "#fee2e2" -%}
 {%- set fg = "#166534" if is_pass else "#991b1b" -%}
-<span style="display:inline-block;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600;letter-spacing:0.5px;background:{{ bg }};color:{{ fg }}">{{ result|upper }}</span>
+<span style="font-size:11px;font-weight:600;letter-spacing:0.5px;color:{{ fg }}">{{ result|upper }}</span>
 {%- endmacro %}
 
 {% macro data_table(headers, rows) %}
