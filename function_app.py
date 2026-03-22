@@ -11,6 +11,7 @@ from typing import Any
 import azure.functions as func
 
 import alert
+import delivery
 import dmarc_parser
 import models
 import storage
@@ -74,55 +75,19 @@ def _run() -> None:
 
         for msg in messages:
             try:
-                msg_id = msg["id"]
-                subject = msg.get("subject", "")
-                to_addresses = _get_to_addresses(msg)
-
-                if not msg.get("hasAttachments"):
-                    graph.mark_as_read(mailbox, msg_id)
-                    continue
-
-                attachments = graph.get_attachments(mailbox, msg_id)
-
-                if dmarc_alias and dmarc_alias in to_addresses:
-                    alerts.extend(
-                        _parse_attachments(attachments, subject, dmarc_parser.parse_attachment, alert.build_dmarc_alert)
-                    )
-                elif tlsrpt_alias and tlsrpt_alias in to_addresses:
-                    alerts.extend(
-                        _parse_attachments(
-                            attachments, subject, tlsrpt_parser.parse_attachment, alert.build_tlsrpt_alert
-                        )
-                    )
-                else:
-                    logger.debug("No alias match for '%s', trying both parsers", subject)
-                    alerts.extend(
-                        _parse_attachments(attachments, subject, dmarc_parser.parse_attachment, alert.build_dmarc_alert)
-                    )
-                    alerts.extend(
-                        _parse_attachments(
-                            attachments, subject, tlsrpt_parser.parse_attachment, alert.build_tlsrpt_alert
-                        )
-                    )
-
-                if delete_after_days == 0:
-                    graph.delete_message(mailbox, msg_id)
-                    logger.debug("Deleted message '%s' (immediate)", subject)
-                else:
-                    graph.mark_as_read(mailbox, msg_id)
-                    if move_to_folder:
-                        graph.move_message(mailbox, msg_id, move_to_folder)
-                        logger.debug("Moved message '%s' to '%s'", subject, move_to_folder)
+                alerts.extend(
+                    _process_message(msg, graph, mailbox, dmarc_alias, tlsrpt_alias, delete_after_days, move_to_folder)
+                )
             except Exception:
                 errors += 1
                 logger.exception("Failed to process message %s", msg.get("id", "unknown"))
 
         for a in alerts:
             try:
-                alert.send_teams_alert(a)
-                alert.send_generic_webhook(a)
+                delivery.send_teams_alert(a)
+                delivery.send_generic_webhook(a)
                 if a.severity != models.AlertSeverity.INFO:
-                    alert.send_email_alert(a, graph)
+                    delivery.send_email_alert(a, graph)
             except Exception:
                 logger.exception("Failed to deliver alert: %s", a.title)
 
@@ -134,6 +99,56 @@ def _run() -> None:
 
         if errors:
             raise RuntimeError(f"{errors} message(s) failed to process")
+
+
+def _process_message(
+    msg: dict,
+    graph: GraphClient,
+    mailbox: str,
+    dmarc_alias: str,
+    tlsrpt_alias: str,
+    delete_after_days: int,
+    move_to_folder: str,
+) -> list[AlertSummary]:
+    """Route, parse, and handle lifecycle for a single message."""
+    msg_id = msg["id"]
+    subject = msg.get("subject", "")
+    to_addresses = _get_to_addresses(msg)
+
+    if not msg.get("hasAttachments"):
+        graph.mark_as_read(mailbox, msg_id)
+        return []
+
+    attachments = graph.get_attachments(mailbox, msg_id)
+
+    new_alerts: list[AlertSummary] = []
+    if dmarc_alias and dmarc_alias in to_addresses:
+        new_alerts.extend(
+            _parse_attachments(attachments, subject, dmarc_parser.parse_attachment, alert.build_dmarc_alert)
+        )
+    elif tlsrpt_alias and tlsrpt_alias in to_addresses:
+        new_alerts.extend(
+            _parse_attachments(attachments, subject, tlsrpt_parser.parse_attachment, alert.build_tlsrpt_alert)
+        )
+    else:
+        logger.debug("No alias match for '%s', trying both parsers", subject)
+        new_alerts.extend(
+            _parse_attachments(attachments, subject, dmarc_parser.parse_attachment, alert.build_dmarc_alert)
+        )
+        new_alerts.extend(
+            _parse_attachments(attachments, subject, tlsrpt_parser.parse_attachment, alert.build_tlsrpt_alert)
+        )
+
+    if delete_after_days == 0:
+        graph.delete_message(mailbox, msg_id)
+        logger.debug("Deleted message '%s' (immediate)", subject)
+    else:
+        graph.mark_as_read(mailbox, msg_id)
+        if move_to_folder:
+            graph.move_message(mailbox, msg_id, move_to_folder)
+            logger.debug("Moved message '%s' to '%s'", subject, move_to_folder)
+
+    return new_alerts
 
 
 # ---------------------------------------------------------------------------
@@ -164,9 +179,9 @@ def send_weekly_summary(timer: func.TimerRequest) -> None:
         summary = alert.build_weekly_summary(records, days=summary_days)
 
         with GraphClient() as graph:
-            alert.send_teams_alert(summary)
-            alert.send_generic_webhook(summary)
-            alert.send_email_alert(summary, graph)
+            delivery.send_teams_alert(summary)
+            delivery.send_generic_webhook(summary)
+            delivery.send_email_alert(summary, graph)
 
         logger.info("Weekly summary sent — %d records over %d days", len(records), summary_days)
     except Exception:
@@ -182,20 +197,22 @@ def send_weekly_summary(timer: func.TimerRequest) -> None:
 
 def _send_error_notification() -> None:
     """Best-effort error notification through available channels."""
-    import traceback
+    import sys
 
-    error_text = traceback.format_exc()
+    exc_type, exc_value, _ = sys.exc_info()
+    exc_name = exc_type.__name__ if exc_type else "Unknown"
+    exc_msg = str(exc_value) if exc_value else ""
     error_alert = AlertSummary(
         title="EmailReports Function Error",
         severity=models.AlertSeverity.CRITICAL,
-        body_markdown=f"**The EmailReports function failed.**\n\n```\n{error_text[-1000:]}\n```",
+        body_markdown=f"**The EmailReports function failed.**\n\n**{exc_name}:** {exc_msg}",
     )
     try:
-        alert.send_teams_alert(error_alert)
+        delivery.send_teams_alert(error_alert)
     except Exception:
         logger.debug("Failed to send error to Teams", exc_info=True)
     try:
-        alert.send_generic_webhook(error_alert)
+        delivery.send_generic_webhook(error_alert)
     except Exception:
         logger.debug("Failed to send error to generic webhook", exc_info=True)
 
@@ -233,6 +250,12 @@ def _parse_attachments(
             continue
         report = parser(name, content_b64)
         if report:
+            if storage.report_exists(
+                "dmarc" if isinstance(report, DmarcReport) else "tlsrpt",
+                report.report_id,
+            ):
+                logger.info("Skipping duplicate report %s from '%s'", report.report_id, subject)
+                continue
             logger.info("Parsed report %s from '%s'", report.report_id, subject)
             alerts.append(alert_builder(report))
             _save_report(report, content_b64)

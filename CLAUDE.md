@@ -6,16 +6,18 @@
 - **Never override, suppress, or skip linter/security warnings without explicit user approval.** This includes `nosec`, `noqa`, `type: ignore`, bandit skips in pyproject.toml, and ruff per-file-ignores. If a tool flags something, discuss the finding and proposed suppression before applying it.
 - **Run the full CI check locally before proposing a commit:** `ruff check . && ruff format --check . && mypy *.py && bandit -r . -x ./.venv,./tests -ll && pytest tests/ --cov --cov-fail-under=100 -W error::DeprecationWarning`
 - **Always update documentation** when changing features, configuration, project structure, or architecture.
+- **Sample images must use generic data only.** When generating screenshots for docs (e.g., `report.png`), use `example.com`, `mail.example.com`, etc. — never real domains like `gieselman.com`.
 
 ## Architecture
 
 - **Model:** `models.py` — dataclasses and enums, no I/O
 - **ViewModel:** `alert.py` — severity logic, data aggregation, passes plain dicts to templates. **No HTML in Python.**
 - **View:** `templates/*.html` — Jinja2 with inheritance (`base.html`) and macros (`macros.html`). All HTML lives here.
-- **Orchestration:** `function_app.py` — timer triggers, message routing, error handling
+- **Delivery:** `delivery.py` — Teams webhook, generic webhook, and email via Graph
+- **Orchestration:** `function_app.py` — timer triggers, message routing, deduplication, error handling
 - **Transport:** `graph_client.py` — MSAL auth + Graph API, retry, timeouts
 - **Parsing:** `dmarc_parser.py`, `tlsrpt_parser.py`, `attachment_util.py`
-- **Storage:** `storage.py` — Azure Table Storage for report tracking
+- **Storage:** `storage.py` — Azure Table Storage for report tracking and deduplication
 
 ## Conventions
 

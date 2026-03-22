@@ -1,14 +1,12 @@
-"""Tests for alert.py — severity logic, HTML generation, and delivery."""
+"""Tests for alert.py — severity logic, HTML generation, and aggregation helpers."""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from unittest.mock import MagicMock, patch
 
 import alert
 from models import (
     AlertSeverity,
-    AlertSummary,
     DmarcDisposition,
     DmarcRecord,
     DmarcReport,
@@ -56,6 +54,32 @@ def _tls_report(policies=None):
         date_end=datetime(2024, 3, 16, tzinfo=UTC),
         policies=policies or [],
     )
+
+
+# ---------------------------------------------------------------------------
+# _classify_severity
+# ---------------------------------------------------------------------------
+
+
+class TestClassifySeverity:
+    def test_no_failures_is_info(self):
+        assert alert._classify_severity(0, 100, has_failures=False) == AlertSeverity.INFO
+
+    def test_low_rate_is_warning(self):
+        assert alert._classify_severity(5, 100, has_failures=True) == AlertSeverity.WARNING
+
+    def test_high_rate_is_critical(self):
+        assert alert._classify_severity(20, 100, has_failures=True) == AlertSeverity.CRITICAL
+
+    def test_boundary_10_percent_is_warning(self):
+        # Exactly 10% is not > 10%
+        assert alert._classify_severity(10, 100, has_failures=True) == AlertSeverity.WARNING
+
+    def test_just_over_10_percent_is_critical(self):
+        assert alert._classify_severity(11, 100, has_failures=True) == AlertSeverity.CRITICAL
+
+    def test_zero_total_no_failures_is_info(self):
+        assert alert._classify_severity(0, 0, has_failures=False) == AlertSeverity.INFO
 
 
 # ---------------------------------------------------------------------------
@@ -282,103 +306,6 @@ class TestMarkdownOutput:
 
 
 # ---------------------------------------------------------------------------
-# send_teams_alert
-# ---------------------------------------------------------------------------
-
-
-class TestSendTeamsAlert:
-    def test_skips_when_no_webhook(self, monkeypatch):
-        monkeypatch.setenv("TEAMS_WEBHOOK_URL", "")
-        a = AlertSummary(title="t", severity=AlertSeverity.INFO, body_markdown="m")
-        # Should not raise
-        alert.send_teams_alert(a)
-
-    def test_posts_to_webhook(self, monkeypatch):
-        monkeypatch.setenv("TEAMS_WEBHOOK_URL", "https://webhook.test/hook")
-        a = AlertSummary(title="Test", severity=AlertSeverity.INFO, body_markdown="m")
-        with patch("alert.requests.post") as mock_post:
-            mock_post.return_value = MagicMock(raise_for_status=MagicMock())
-            alert.send_teams_alert(a)
-            mock_post.assert_called_once()
-            call_url = mock_post.call_args[0][0]
-            assert call_url == "https://webhook.test/hook"
-
-    def test_adaptive_card_severity_attention(self, monkeypatch):
-        monkeypatch.setenv("TEAMS_WEBHOOK_URL", "https://webhook.test/hook")
-        a = AlertSummary(title="Critical", severity=AlertSeverity.CRITICAL, body_markdown="m")
-        with patch("alert.requests.post") as mock_post:
-            mock_post.return_value = MagicMock(raise_for_status=MagicMock())
-            alert.send_teams_alert(a)
-            card = mock_post.call_args[1]["json"]
-            body = card["attachments"][0]["content"]["body"]
-            assert body[0]["color"] == "Attention"
-
-    def test_adaptive_card_severity_good(self, monkeypatch):
-        monkeypatch.setenv("TEAMS_WEBHOOK_URL", "https://webhook.test/hook")
-        a = AlertSummary(title="OK", severity=AlertSeverity.INFO, body_markdown="m")
-        with patch("alert.requests.post") as mock_post:
-            mock_post.return_value = MagicMock(raise_for_status=MagicMock())
-            alert.send_teams_alert(a)
-            card = mock_post.call_args[1]["json"]
-            body = card["attachments"][0]["content"]["body"]
-            assert body[0]["color"] == "Good"
-
-
-# ---------------------------------------------------------------------------
-# send_email_alert
-# ---------------------------------------------------------------------------
-
-
-class TestSendGenericWebhook:
-    def test_skips_when_no_url(self, monkeypatch):
-        monkeypatch.setenv("GENERIC_WEBHOOK_URL", "")
-        a = AlertSummary(title="t", severity=AlertSeverity.INFO, body_markdown="m")
-        alert.send_generic_webhook(a)  # should not raise
-
-    def test_posts_json_payload(self, monkeypatch):
-        monkeypatch.setenv("GENERIC_WEBHOOK_URL", "https://hook.test/endpoint")
-        a = AlertSummary(title="Test Alert", severity=AlertSeverity.WARNING, body_markdown="body")
-        with patch("alert.requests.post") as mock_post:
-            mock_post.return_value = MagicMock(raise_for_status=MagicMock())
-            alert.send_generic_webhook(a)
-            mock_post.assert_called_once()
-            call_url = mock_post.call_args[0][0]
-            assert call_url == "https://hook.test/endpoint"
-            payload = mock_post.call_args[1]["json"]
-            assert payload["title"] == "Test Alert"
-            assert payload["severity"] == "warning"
-            assert payload["body"] == "body"
-            assert "timestamp" in payload
-
-
-# ---------------------------------------------------------------------------
-# send_email_alert
-# ---------------------------------------------------------------------------
-
-
-class TestSendEmailAlert:
-    def test_disabled_by_default(self, mock_graph, monkeypatch):
-        monkeypatch.setenv("ALERT_EMAIL_ENABLED", "false")
-        a = AlertSummary(title="t", severity=AlertSeverity.INFO, body_markdown="m")
-        alert.send_email_alert(a, mock_graph)
-        mock_graph.send_mail.assert_not_called()
-
-    def test_enabled_sends_email(self, mock_graph, monkeypatch):
-        monkeypatch.setenv("ALERT_EMAIL_ENABLED", "true")
-        monkeypatch.setenv("ALERT_EMAIL_FROM", "from@test.com")
-        monkeypatch.setenv("ALERT_EMAIL_TO", "to@test.com")
-        a = AlertSummary(title="Test", severity=AlertSeverity.INFO, body_markdown="m", body_html="<p>html</p>")
-        alert.send_email_alert(a, mock_graph)
-        mock_graph.send_mail.assert_called_once_with("from@test.com", "to@test.com", "Test", "<p>html</p>")
-
-    def test_case_insensitive_enabled(self, mock_graph, monkeypatch):
-        monkeypatch.setenv("ALERT_EMAIL_ENABLED", "TRUE")
-        a = AlertSummary(title="Test", severity=AlertSeverity.INFO, body_markdown="m", body_html="<p>html</p>")
-        alert.send_email_alert(a, mock_graph)
-        mock_graph.send_mail.assert_called_once()
-
-
-# ---------------------------------------------------------------------------
 # HTML helpers
 # ---------------------------------------------------------------------------
 
@@ -392,7 +319,7 @@ class TestViewModelHelpers:
 
     def test_card_default_color(self):
         card = alert._card("0", "Test")
-        assert card["color"] == "#1e293b"
+        assert card["color"] == "#ffffff"
 
     def test_base_context(self):
         ctx = alert._base_context("Title", AlertSeverity.WARNING, [alert._card("1", "X")])
@@ -402,7 +329,7 @@ class TestViewModelHelpers:
 
 
 # ---------------------------------------------------------------------------
-# Weekly summary
+# Aggregation helpers
 # ---------------------------------------------------------------------------
 
 
@@ -429,6 +356,130 @@ def _report_record(
         dmarc_failure_details_json=dmarc_failure_details_json,
         tls_failure_details_json=tls_failure_details_json,
     )
+
+
+class TestAggregationHelpers:
+    def test_aggregate_org_volumes(self):
+        records = [
+            _report_record("dmarc", "big.com", 500),
+            _report_record("dmarc", "small.com", 10),
+            _report_record("tlsrpt", "big.com", 200),
+        ]
+        result = alert._aggregate_org_volumes(records)
+        assert result[0] == ("big.com", 700)
+        assert result[1] == ("small.com", 10)
+
+    def test_aggregate_org_volumes_top_10(self):
+        records = [_report_record("dmarc", f"org{i}.com", 100 - i) for i in range(15)]
+        result = alert._aggregate_org_volumes(records)
+        assert len(result) == 10
+
+    def test_aggregate_policy_distribution(self):
+        r1 = _report_record("dmarc", "a.com", 100)
+        r2 = _report_record("dmarc", "b.com", 50)
+        r2.policy = "quarantine"
+        dmarc = [r1, r2]
+        result = alert._aggregate_policy_distribution(dmarc)
+        assert result[0] == ("reject", 100)
+        assert result[1] == ("quarantine", 50)
+
+    def test_aggregate_failure_orgs(self):
+        records = [
+            _report_record("dmarc", "good.com", 100, 100, 0),
+            _report_record("dmarc", "bad.com", 100, 80, 20),
+        ]
+        result = alert._aggregate_failure_orgs(records)
+        assert "bad.com" in result
+        assert "good.com" not in result
+        assert result["bad.com"] == 20
+
+    def test_aggregate_dmarc_failures(self):
+        import json
+
+        fd = {
+            "source_ip": "1.1.1.1",
+            "count": 2,
+            "disposition": "none",
+            "dkim_result": "fail",
+            "spf_result": "fail",
+            "header_from": "x.com",
+        }
+        dmarc = [_report_record("dmarc", "a.com", dmarc_failure_details_json=json.dumps([fd]))]
+        result = alert._aggregate_dmarc_failures(dmarc)
+        assert len(result) == 1
+        assert result[0]["source_ip"] == "1.1.1.1"
+
+    def test_aggregate_dmarc_failures_merges_same_key(self):
+        import json
+
+        fd1 = {
+            "source_ip": "1.1.1.1",
+            "count": 2,
+            "disposition": "none",
+            "dkim_result": "fail",
+            "spf_result": "fail",
+            "header_from": "x.com",
+        }
+        fd2 = {**fd1, "count": 3}
+        dmarc = [
+            _report_record("dmarc", "a.com", dmarc_failure_details_json=json.dumps([fd1])),
+            _report_record("dmarc", "b.com", dmarc_failure_details_json=json.dumps([fd2])),
+        ]
+        result = alert._aggregate_dmarc_failures(dmarc)
+        assert len(result) == 1
+        assert result[0]["count"] == 5
+
+    def test_aggregate_tls_failures(self):
+        import json
+
+        fd = {
+            "result_type": "cert-expired",
+            "sending_mta_ip": "1.2.3.4",
+            "receiving_mx_hostname": "mx.test.com",
+            "failed_session_count": 2,
+            "failure_reason_code": "",
+        }
+        tlsrpt = [_report_record("tlsrpt", "a.com", tls_failure_details_json=json.dumps([fd]))]
+        result = alert._aggregate_tls_failures(tlsrpt)
+        assert len(result) == 1
+        assert result[0]["receiving_mx_hostname"] == "mx.test.com"
+
+    def test_aggregate_tls_failures_merges_same_key(self):
+        import json
+
+        fd1 = {
+            "result_type": "cert-expired",
+            "sending_mta_ip": "1.2.3.4",
+            "receiving_mx_hostname": "mx.test.com",
+            "failed_session_count": 2,
+            "failure_reason_code": "",
+        }
+        fd2 = {**fd1, "failed_session_count": 3}
+        tlsrpt = [
+            _report_record("tlsrpt", "a.com", tls_failure_details_json=json.dumps([fd1])),
+            _report_record("tlsrpt", "b.com", tls_failure_details_json=json.dumps([fd2])),
+        ]
+        result = alert._aggregate_tls_failures(tlsrpt)
+        assert len(result) == 1
+        assert result[0]["failed_session_count"] == 5
+
+    def test_build_sender_details(self):
+        dmarc = [_report_record("dmarc", "google.com", 100, 95, 5)]
+        tlsrpt = [_report_record("tlsrpt", "google.com", 50, 48, 2)]
+        top_senders = [("google.com", 150)]
+        failure_orgs = {"google.com": 7}
+        result = alert._build_sender_details(top_senders, dmarc, tlsrpt, failure_orgs)
+        assert len(result) == 1
+        assert result[0]["org"] == "google.com"
+        assert result[0]["volume"] == 150
+        assert result[0]["dmarc"] == 100
+        assert result[0]["tls"] == 50
+        assert result[0]["fails"] == 7
+
+
+# ---------------------------------------------------------------------------
+# Weekly summary
+# ---------------------------------------------------------------------------
 
 
 class TestWeeklySummary:

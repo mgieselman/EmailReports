@@ -1,4 +1,4 @@
-"""Alert formatting and delivery via Teams webhook and Graph email.
+"""Alert formatting — severity logic and HTML generation.
 
 This module is the ViewModel layer — it prepares data contexts and passes
 them to Jinja2 templates for HTML rendering. No HTML is constructed here.
@@ -8,14 +8,11 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from datetime import UTC, datetime
 from pathlib import Path
 
-import requests
 from jinja2 import Environment, FileSystemLoader
 
-from graph_client import GraphClient
 from models import (
     AlertSeverity,
     AlertSummary,
@@ -27,6 +24,13 @@ from models import (
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+FAILURE_RATE_CRITICAL_THRESHOLD = 0.1
+"""Failure rate above which severity escalates to CRITICAL."""
+
+# ---------------------------------------------------------------------------
 # Template engine
 # ---------------------------------------------------------------------------
 
@@ -34,9 +38,9 @@ _TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 _env = Environment(loader=FileSystemLoader(_TEMPLATE_DIR), autoescape=True)
 
 SEVERITY_COLOR = {
-    AlertSeverity.INFO: "#10b981",
-    AlertSeverity.WARNING: "#f59e0b",
-    AlertSeverity.CRITICAL: "#ef4444",
+    AlertSeverity.INFO: "#4caf50",
+    AlertSeverity.WARNING: "#ef6c00",
+    AlertSeverity.CRITICAL: "#ef5350",
 }
 
 SEVERITY_LABEL = {
@@ -46,9 +50,9 @@ SEVERITY_LABEL = {
 }
 
 SEVERITY_BG = {
-    AlertSeverity.INFO: "#ecfdf5",
-    AlertSeverity.WARNING: "#fffbeb",
-    AlertSeverity.CRITICAL: "#fef2f2",
+    AlertSeverity.INFO: "#1c1c1c",
+    AlertSeverity.WARNING: "#1c1c1c",
+    AlertSeverity.CRITICAL: "#1c1c1c",
 }
 
 
@@ -64,8 +68,18 @@ def _base_context(title: str, severity: AlertSeverity, stat_cards: list[dict]) -
     }
 
 
-def _card(value: str, label: str, color: str = "#1e293b") -> dict:
+def _card(value: str, label: str, color: str = "#ffffff") -> dict:
+    """Build a stat card dict. Default color is white for dark theme."""
     return {"value": value, "label": label, "color": color}
+
+
+def _classify_severity(fail_count: int, total: int, *, has_failures: bool) -> AlertSeverity:
+    """Determine severity from failure count and total."""
+    if not has_failures:
+        return AlertSeverity.INFO
+    if fail_count / max(total, 1) > FAILURE_RATE_CRITICAL_THRESHOLD:
+        return AlertSeverity.CRITICAL
+    return AlertSeverity.WARNING
 
 
 # ---------------------------------------------------------------------------
@@ -79,12 +93,7 @@ def build_dmarc_alert(report: DmarcReport) -> AlertSummary:
     fail_count = sum(r.count for r in failing)
     pass_count = total - fail_count
 
-    if not failing:
-        severity = AlertSeverity.INFO
-    elif fail_count / max(total, 1) > 0.1:
-        severity = AlertSeverity.CRITICAL
-    else:
-        severity = AlertSeverity.WARNING
+    severity = _classify_severity(fail_count, total, has_failures=bool(failing))
 
     pass_rate = f"{pass_count / max(total, 1) * 100:.0f}%"
 
@@ -111,9 +120,9 @@ def build_dmarc_alert(report: DmarcReport) -> AlertSummary:
         severity,
         [
             _card(str(total), "Total Messages"),
-            _card(str(pass_count), "Passing", "#166534"),
-            _card(str(fail_count), "Failing", "#991b1b" if fail_count > 0 else "#166534"),
-            _card(pass_rate, "Pass Rate", "#166534" if pass_count == total else "#b45309"),
+            _card(str(pass_count), "Passing"),
+            _card(str(fail_count), "Failing"),
+            _card(pass_rate, "Pass Rate", "#4caf50" if pass_count == total else "#ef6c00"),
             _card(report.policy.value.upper(), "Policy"),
         ],
     )
@@ -140,12 +149,7 @@ def build_tlsrpt_alert(report: TlsRptReport) -> AlertSummary:
     total_ok = report.total_successful
     total_all = total_ok + total_fail
 
-    if total_fail == 0:
-        severity = AlertSeverity.INFO
-    elif total_fail / max(total_all, 1) > 0.1:
-        severity = AlertSeverity.CRITICAL
-    else:
-        severity = AlertSeverity.WARNING
+    severity = _classify_severity(total_fail, total_all, has_failures=total_fail > 0)
 
     success_rate = f"{total_ok / max(total_all, 1) * 100:.0f}%"
 
@@ -198,9 +202,9 @@ def build_tlsrpt_alert(report: TlsRptReport) -> AlertSummary:
         severity,
         [
             _card(str(total_all), "Total Sessions"),
-            _card(str(total_ok), "Successful", "#166534"),
-            _card(str(total_fail), "Failed", "#991b1b" if total_fail > 0 else "#166534"),
-            _card(success_rate, "Success Rate", "#166534" if total_fail == 0 else "#b45309"),
+            _card(str(total_ok), "Successful"),
+            _card(str(total_fail), "Failed"),
+            _card(success_rate, "Success Rate", "#4caf50" if total_fail == 0 else "#ef6c00"),
         ],
     )
     ctx["report"] = report
@@ -217,7 +221,81 @@ def build_tlsrpt_alert(report: TlsRptReport) -> AlertSummary:
 
 
 # ---------------------------------------------------------------------------
-# Weekly summary
+# Weekly summary — aggregation helpers
+# ---------------------------------------------------------------------------
+
+
+def _aggregate_org_volumes(records: list[ReportRecord]) -> list[tuple[str, int]]:
+    """Return top 10 orgs by total message volume, descending."""
+    volumes: dict[str, int] = {}
+    for r in records:
+        volumes[r.org_name] = volumes.get(r.org_name, 0) + r.total_messages
+    return sorted(volumes.items(), key=lambda x: x[1], reverse=True)[:10]
+
+
+def _aggregate_policy_distribution(dmarc: list[ReportRecord]) -> list[tuple[str, int]]:
+    """Return DMARC policy distribution sorted by count, descending."""
+    counts: dict[str, int] = {}
+    for r in dmarc:
+        counts[r.policy] = counts.get(r.policy, 0) + r.total_messages
+    return sorted(counts.items(), key=lambda x: x[1], reverse=True)
+
+
+def _aggregate_failure_orgs(records: list[ReportRecord]) -> dict[str, int]:
+    """Return org -> failure count for orgs with failures."""
+    orgs: dict[str, int] = {}
+    for r in records:
+        if r.fail_count > 0:
+            orgs[r.org_name] = orgs.get(r.org_name, 0) + r.fail_count
+    return orgs
+
+
+def _aggregate_dmarc_failures(dmarc: list[ReportRecord]) -> list[dict]:
+    """Aggregate DMARC failure details across records, top 20 by count."""
+    agg: dict[tuple[str, str], dict] = {}
+    for r in dmarc:
+        if r.dmarc_failure_details_json:
+            for fd in json.loads(r.dmarc_failure_details_json):
+                key = (fd["source_ip"], fd["header_from"])
+                if key in agg:
+                    agg[key]["count"] += fd["count"]
+                else:
+                    agg[key] = {**fd}
+    return sorted(agg.values(), key=lambda x: x["count"], reverse=True)[:20]
+
+
+def _aggregate_tls_failures(tlsrpt: list[ReportRecord]) -> list[dict]:
+    """Aggregate TLS failure details across records, top 20 by session count."""
+    agg: dict[tuple[str, str, str], dict] = {}
+    for r in tlsrpt:
+        if r.tls_failure_details_json:
+            for fd in json.loads(r.tls_failure_details_json):
+                key = (fd["result_type"], fd["receiving_mx_hostname"], fd["failure_reason_code"])
+                if key in agg:
+                    agg[key]["failed_session_count"] += fd["failed_session_count"]
+                else:
+                    agg[key] = {**fd}
+    return sorted(agg.values(), key=lambda x: x["failed_session_count"], reverse=True)[:20]
+
+
+def _build_sender_details(
+    top_senders: list[tuple[str, int]],
+    dmarc: list[ReportRecord],
+    tlsrpt: list[ReportRecord],
+    failure_orgs: dict[str, int],
+) -> list[dict]:
+    """Build per-sender detail dicts for the summary template."""
+    senders = []
+    for org, vol in top_senders:
+        org_dmarc = sum(r.total_messages for r in dmarc if r.org_name == org)
+        org_tls = sum(r.pass_count + r.fail_count for r in tlsrpt if r.org_name == org)
+        org_fails = failure_orgs.get(org, 0)
+        senders.append({"org": org, "volume": vol, "dmarc": org_dmarc, "tls": org_tls, "fails": org_fails})
+    return senders
+
+
+# ---------------------------------------------------------------------------
+# Weekly summary — main builder
 # ---------------------------------------------------------------------------
 
 
@@ -244,31 +322,17 @@ def build_weekly_summary(records: list[ReportRecord], days: int = 7) -> AlertSum
     total_size = _format_bytes(total_bytes)
 
     # Aggregations
-    org_volumes: dict[str, int] = {}
-    for r in records:
-        org_volumes[r.org_name] = org_volumes.get(r.org_name, 0) + r.total_messages
-    top_senders = sorted(org_volumes.items(), key=lambda x: x[1], reverse=True)[:10]
-
-    policy_counts: dict[str, int] = {}
-    for r in dmarc:
-        policy_counts[r.policy] = policy_counts.get(r.policy, 0) + r.total_messages
-    policy_dist = sorted(policy_counts.items(), key=lambda x: x[1], reverse=True)
-
-    failure_orgs: dict[str, int] = {}
-    for r in records:
-        if r.fail_count > 0:
-            failure_orgs[r.org_name] = failure_orgs.get(r.org_name, 0) + r.fail_count
+    top_senders = _aggregate_org_volumes(records)
+    policy_dist = _aggregate_policy_distribution(dmarc)
+    failure_orgs = _aggregate_failure_orgs(records)
     top_failures = sorted(failure_orgs.items(), key=lambda x: x[1], reverse=True)[:10]
+    dmarc_failures_data = _aggregate_dmarc_failures(dmarc)
+    tls_failures_data = _aggregate_tls_failures(tlsrpt)
 
     # Severity
     total_fail = dmarc_fail + tls_fail
     total_all = dmarc_messages + tls_total
-    if total_fail == 0:
-        severity = AlertSeverity.INFO
-    elif total_fail / max(total_all, 1) > 0.1:
-        severity = AlertSeverity.CRITICAL
-    else:
-        severity = AlertSeverity.WARNING
+    severity = _classify_severity(total_fail, total_all, has_failures=total_fail > 0)
 
     # Markdown (Teams)
     md_lines = [
@@ -283,46 +347,6 @@ def build_weekly_summary(records: list[ReportRecord], days: int = 7) -> AlertSum
         md_lines.extend(["", "**Top Senders:**"])
         for org, vol in top_senders[:5]:
             md_lines.append(f"- {org}: {vol:,} messages")
-
-    # Structured data for template
-    senders = []
-    for org, vol in top_senders:
-        org_dmarc = sum(r.total_messages for r in dmarc if r.org_name == org)
-        org_tls = sum(r.pass_count + r.fail_count for r in tlsrpt if r.org_name == org)
-        org_fails = failure_orgs.get(org, 0)
-        senders.append({"org": org, "volume": vol, "dmarc": org_dmarc, "tls": org_tls, "fails": org_fails})
-
-    policy_dist_data = []
-    for pol, count in policy_dist:
-        pct = f"{count / max(dmarc_messages, 1) * 100:.0f}%"
-        color = "#166534" if pol == "reject" else "#b45309" if pol == "quarantine" else "#991b1b"
-        policy_dist_data.append({"policy": pol, "count": count, "pct": pct, "color": color})
-
-    failures_data = [{"org": org, "count": count} for org, count in top_failures]
-
-    # Aggregate DMARC failure details across all records
-    dmarc_failure_agg: dict[tuple[str, str], dict] = {}
-    for r in dmarc:
-        if r.dmarc_failure_details_json:
-            for fd in json.loads(r.dmarc_failure_details_json):
-                key = (fd["source_ip"], fd["header_from"])
-                if key in dmarc_failure_agg:
-                    dmarc_failure_agg[key]["count"] += fd["count"]
-                else:
-                    dmarc_failure_agg[key] = {**fd}
-    dmarc_failures_data = sorted(dmarc_failure_agg.values(), key=lambda x: x["count"], reverse=True)[:20]
-
-    # Aggregate TLS failure details across all records
-    tls_failure_agg: dict[tuple[str, str, str], dict] = {}
-    for r in tlsrpt:
-        if r.tls_failure_details_json:
-            for fd in json.loads(r.tls_failure_details_json):
-                tls_key = (fd["result_type"], fd["receiving_mx_hostname"], fd["failure_reason_code"])
-                if tls_key in tls_failure_agg:
-                    tls_failure_agg[tls_key]["failed_session_count"] += fd["failed_session_count"]
-                else:
-                    tls_failure_agg[tls_key] = {**fd}
-    tls_failures_data = sorted(tls_failure_agg.values(), key=lambda x: x["failed_session_count"], reverse=True)[:20]
 
     if dmarc_failures_data:
         md_lines.extend(["", "**DMARC Failure Details:**"])
@@ -339,8 +363,19 @@ def build_weekly_summary(records: list[ReportRecord], days: int = 7) -> AlertSum
         md_lines.append("|-------------|---------|-------:|--------|")
         for fd in tls_failures_data[:10]:
             md_lines.append(
-                f"| {fd['result_type']} | {fd['receiving_mx_hostname']} | {fd['failed_session_count']} | {fd['failure_reason_code'] or '—'} |"
+                f"| {fd['result_type']} | {fd['receiving_mx_hostname']} | {fd['failed_session_count']} | {fd['failure_reason_code'] or '\u2014'} |"
             )
+
+    # Structured data for template
+    senders = _build_sender_details(top_senders, dmarc, tlsrpt, failure_orgs)
+
+    policy_dist_data = []
+    for pol, count in policy_dist:
+        pct = f"{count / max(dmarc_messages, 1) * 100:.0f}%"
+        color = "#4caf50" if pol == "reject" else "#ef6c00" if pol == "quarantine" else "#ef5350"
+        policy_dist_data.append({"policy": pol, "count": count, "pct": pct, "color": color})
+
+    failures_data = [{"org": org, "count": count} for org, count in top_failures]
 
     ctx = _base_context(
         "Weekly Email Security Summary",
@@ -348,9 +383,9 @@ def build_weekly_summary(records: list[ReportRecord], days: int = 7) -> AlertSum
         [
             _card(str(total_reports), "Reports"),
             _card(str(dmarc_messages), "DMARC Messages"),
-            _card(dmarc_pass_rate, "DMARC Pass Rate", "#166534" if dmarc_fail == 0 else "#b45309"),
+            _card(dmarc_pass_rate, "DMARC Pass Rate", "#4caf50" if dmarc_fail == 0 else "#ef6c00"),
             _card(str(tls_total), "TLS Sessions"),
-            _card(tls_pass_rate, "TLS Pass Rate", "#166534" if tls_fail == 0 else "#b45309"),
+            _card(tls_pass_rate, "TLS Pass Rate", "#4caf50" if tls_fail == 0 else "#ef6c00"),
         ],
     )
     ctx.update(
@@ -383,78 +418,3 @@ def _format_bytes(size: int) -> str:
             return f"{n:.1f} {unit}" if unit != "B" else f"{int(n)} B"
         n /= 1024
     return f"{n:.1f} TB"
-
-
-# ---------------------------------------------------------------------------
-# Delivery
-# ---------------------------------------------------------------------------
-
-
-def send_teams_alert(alert_summary: AlertSummary) -> None:
-    webhook_url = os.environ.get("TEAMS_WEBHOOK_URL", "")
-    if not webhook_url:
-        logger.debug("TEAMS_WEBHOOK_URL not set; skipping Teams notification")
-        return
-
-    card = {
-        "type": "message",
-        "attachments": [
-            {
-                "contentType": "application/vnd.microsoft.card.adaptive",
-                "contentUrl": None,
-                "content": {
-                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-                    "type": "AdaptiveCard",
-                    "version": "1.4",
-                    "body": [
-                        {
-                            "type": "TextBlock",
-                            "size": "Large",
-                            "weight": "Bolder",
-                            "text": alert_summary.title,
-                            "color": "Attention" if alert_summary.severity != AlertSeverity.INFO else "Good",
-                        },
-                        {"type": "TextBlock", "text": alert_summary.body_markdown, "wrap": True},
-                        {
-                            "type": "TextBlock",
-                            "text": f"_{alert_summary.timestamp:%Y-%m-%d %H:%M UTC}_",
-                            "isSubtle": True,
-                            "size": "Small",
-                        },
-                    ],
-                },
-            }
-        ],
-    }
-
-    resp = requests.post(webhook_url, json=card, timeout=30)
-    resp.raise_for_status()
-    logger.info("Teams alert sent: %s", alert_summary.title)
-
-
-def send_generic_webhook(alert_summary: AlertSummary) -> None:
-    """POST alert as JSON to a generic webhook URL (Slack, Discord, n8n, etc.)."""
-    webhook_url = os.environ.get("GENERIC_WEBHOOK_URL", "")
-    if not webhook_url:
-        return
-
-    payload = {
-        "title": alert_summary.title,
-        "severity": alert_summary.severity.value,
-        "body": alert_summary.body_markdown,
-        "timestamp": alert_summary.timestamp.isoformat(),
-    }
-
-    resp = requests.post(webhook_url, json=payload, timeout=30)
-    resp.raise_for_status()
-    logger.info("Generic webhook sent: %s", alert_summary.title)
-
-
-def send_email_alert(alert_summary: AlertSummary, graph: GraphClient) -> None:
-    enabled = os.environ.get("ALERT_EMAIL_ENABLED", "false").lower() == "true"
-    if not enabled:
-        return
-
-    from_addr = os.environ["ALERT_EMAIL_FROM"]
-    to_addr = os.environ["ALERT_EMAIL_TO"]
-    graph.send_mail(from_addr, to_addr, alert_summary.title, alert_summary.body_html)

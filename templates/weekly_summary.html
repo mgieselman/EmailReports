@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% from "macros.html" import data_table, section_header, bold, colored, bold_colored, mono, status_badge, subtle %}
+{% from "macros.html" import th, td, row_bg, section_header, bold, colored, mono, status_badge, subtle %}
 
 {% block subtitle %}
-Period: <strong style='color:#e2e8f0'>Last {{ days }} days</strong> &nbsp;&bull;&nbsp;
-Reports: <strong style='color:#e2e8f0'>{{ total_reports }}</strong> &nbsp;&bull;&nbsp;
-Attachments: <strong style='color:#e2e8f0'>{{ total_size }}</strong>
+Period: <strong style='color:#ffffff'>Last {{ days }} days</strong> &nbsp;&bull;&nbsp;
+Reports: <strong style='color:#ffffff'>{{ total_reports }}</strong> &nbsp;&bull;&nbsp;
+Attachments: <strong style='color:#ffffff'>{{ total_size }}</strong>
 {% endblock %}
 
 {% block content %}
@@ -13,16 +13,16 @@ Attachments: <strong style='color:#e2e8f0'>{{ total_size }}</strong>
   <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
     <tr>
       {% for h in ["Reporter", "Total Volume", "DMARC", "TLS-RPT", "Failures"] %}
-      <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:#64748b;background:#f8fafc;border-bottom:2px solid #e2e8f0">{{ h }}</th>
+      {{ th(h) }}
       {% endfor %}
     </tr>
     {% for s in senders %}
-    <tr style="background:{{ '#ffffff' if loop.index0 % 2 == 0 else '#f8fafc' }}">
-      <td style="padding:9px 12px;font-size:13px;color:#334155;border-bottom:1px solid #f1f5f9">{{ bold(s.org) }}</td>
-      <td style="padding:9px 12px;font-size:13px;color:#334155;border-bottom:1px solid #f1f5f9">{{ "{:,}".format(s.volume) }}</td>
-      <td style="padding:9px 12px;font-size:13px;color:#334155;border-bottom:1px solid #f1f5f9">{{ "{:,}".format(s.dmarc) }}</td>
-      <td style="padding:9px 12px;font-size:13px;color:#334155;border-bottom:1px solid #f1f5f9">{{ "{:,}".format(s.tls) }}</td>
-      <td style="padding:9px 12px;font-size:13px;color:#334155;border-bottom:1px solid #f1f5f9">{{ colored("{:,}".format(s.fails), "#991b1b" if s.fails > 0 else "#166534") }}</td>
+    <tr style="background:{{ row_bg(loop.index0) }}">
+      {{ td(bold(s.org)) }}
+      {{ td("{:,}".format(s.volume)) }}
+      {{ td("{:,}".format(s.dmarc)) }}
+      {{ td("{:,}".format(s.tls)) }}
+      {{ td(colored("{:,}".format(s.fails), "#ef5350" if s.fails > 0 else "#4caf50")) }}
     </tr>
     {% endfor %}
   </table>
@@ -34,14 +34,14 @@ Attachments: <strong style='color:#e2e8f0'>{{ total_size }}</strong>
   <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
     <tr>
       {% for h in ["Policy", "Messages", "Share"] %}
-      <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:#64748b;background:#f8fafc;border-bottom:2px solid #e2e8f0">{{ h }}</th>
+      {{ th(h) }}
       {% endfor %}
     </tr>
     {% for p in policy_dist %}
-    <tr style="background:{{ '#ffffff' if loop.index0 % 2 == 0 else '#f8fafc' }}">
-      <td style="padding:9px 12px;font-size:13px;color:#334155;border-bottom:1px solid #f1f5f9">{{ bold_colored(p.policy|upper, p.color) }}</td>
-      <td style="padding:9px 12px;font-size:13px;color:#334155;border-bottom:1px solid #f1f5f9">{{ "{:,}".format(p.count) }}</td>
-      <td style="padding:9px 12px;font-size:13px;color:#334155;border-bottom:1px solid #f1f5f9">{{ p.pct }}</td>
+    <tr style="background:{{ row_bg(loop.index0) }}">
+      {{ td(colored(p.policy|upper, p.color)) }}
+      {{ td("{:,}".format(p.count)) }}
+      {{ td(p.pct) }}
     </tr>
     {% endfor %}
   </table>
@@ -54,13 +54,13 @@ Attachments: <strong style='color:#e2e8f0'>{{ total_size }}</strong>
   <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
     <tr>
       {% for h in ["Source", "Failures"] %}
-      <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:#64748b;background:#f8fafc;border-bottom:2px solid #e2e8f0">{{ h }}</th>
+      {{ th(h) }}
       {% endfor %}
     </tr>
     {% for f in top_failures %}
-    <tr style="background:{{ '#ffffff' if loop.index0 % 2 == 0 else '#f8fafc' }}">
-      <td style="padding:9px 12px;font-size:13px;color:#334155;border-bottom:1px solid #f1f5f9">{{ bold(f.org) }}</td>
-      <td style="padding:9px 12px;font-size:13px;color:#334155;border-bottom:1px solid #f1f5f9">{{ colored("{:,}".format(f.count), "#991b1b") }}</td>
+    <tr style="background:{{ row_bg(loop.index0) }}">
+      {{ td(bold(f.org)) }}
+      {{ td(colored("{:,}".format(f.count), "#ef5350")) }}
     </tr>
     {% endfor %}
   </table>
@@ -73,17 +73,17 @@ Attachments: <strong style='color:#e2e8f0'>{{ total_size }}</strong>
   <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
     <tr>
       {% for h in ["Source IP", "Count", "Disposition", "DKIM", "SPF", "Header From"] %}
-      <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:#64748b;background:#f8fafc;border-bottom:2px solid #e2e8f0">{{ h }}</th>
+      {{ th(h) }}
       {% endfor %}
     </tr>
     {% for f in dmarc_failures %}
-    <tr style="background:{{ '#ffffff' if loop.index0 % 2 == 0 else '#f8fafc' }}">
-      <td style="padding:9px 12px;font-size:13px;color:#334155;border-bottom:1px solid #f1f5f9">{{ mono(f.source_ip) }}</td>
-      <td style="padding:9px 12px;font-size:13px;color:#334155;border-bottom:1px solid #f1f5f9">{{ bold("{:,}".format(f.count)) }}</td>
-      <td style="padding:9px 12px;font-size:13px;color:#334155;border-bottom:1px solid #f1f5f9">{{ f.disposition|upper }}</td>
-      <td style="padding:9px 12px;font-size:13px;color:#334155;border-bottom:1px solid #f1f5f9">{{ status_badge(f.dkim_result) }}</td>
-      <td style="padding:9px 12px;font-size:13px;color:#334155;border-bottom:1px solid #f1f5f9">{{ status_badge(f.spf_result) }}</td>
-      <td style="padding:9px 12px;font-size:13px;color:#334155;border-bottom:1px solid #f1f5f9">{{ f.header_from }}</td>
+    <tr style="background:{{ row_bg(loop.index0) }}">
+      {{ td(mono(f.source_ip)) }}
+      {{ td(bold("{:,}".format(f.count))) }}
+      {{ td(f.disposition|upper) }}
+      {{ td(status_badge(f.dkim_result)) }}
+      {{ td(status_badge(f.spf_result)) }}
+      {{ td(f.header_from) }}
     </tr>
     {% endfor %}
   </table>
@@ -96,15 +96,15 @@ Attachments: <strong style='color:#e2e8f0'>{{ total_size }}</strong>
   <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
     <tr>
       {% for h in ["Result Type", "MX Host", "Failed Sessions", "Reason"] %}
-      <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:#64748b;background:#f8fafc;border-bottom:2px solid #e2e8f0">{{ h }}</th>
+      {{ th(h) }}
       {% endfor %}
     </tr>
     {% for f in tls_failures %}
-    <tr style="background:{{ '#ffffff' if loop.index0 % 2 == 0 else '#f8fafc' }}">
-      <td style="padding:9px 12px;font-size:13px;color:#334155;border-bottom:1px solid #f1f5f9">{{ status_badge(f.result_type, "successful") }}</td>
-      <td style="padding:9px 12px;font-size:13px;color:#334155;border-bottom:1px solid #f1f5f9">{{ mono(f.receiving_mx_hostname) }}</td>
-      <td style="padding:9px 12px;font-size:13px;color:#334155;border-bottom:1px solid #f1f5f9">{{ colored("{:,}".format(f.failed_session_count), "#991b1b") }}</td>
-      <td style="padding:9px 12px;font-size:13px;color:#334155;border-bottom:1px solid #f1f5f9">{{ subtle(f.failure_reason_code or "—") }}</td>
+    <tr style="background:{{ row_bg(loop.index0) }}">
+      {{ td(status_badge(f.result_type, "successful")) }}
+      {{ td(mono(f.receiving_mx_hostname)) }}
+      {{ td(colored("{:,}".format(f.failed_session_count), "#ef5350")) }}
+      {{ td(subtle(f.failure_reason_code or "—")) }}
     </tr>
     {% endfor %}
   </table>

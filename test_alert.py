@@ -33,6 +33,7 @@ def _load_local_settings():
 _load_local_settings()
 
 import alert
+import delivery
 import dmarc_parser
 import tlsrpt_parser
 from graph_client import GraphClient
@@ -177,7 +178,7 @@ def main():
     if args.teams:
         for a in all_alerts:
             print(f"Sending Teams alert: {a.title}")
-            alert.send_teams_alert(a)
+            delivery.send_teams_alert(a)
         print("Teams alerts sent.")
 
     if args.email:

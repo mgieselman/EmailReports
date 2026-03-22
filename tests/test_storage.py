@@ -5,8 +5,18 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 import storage
 from models import ReportRecord
+
+
+@pytest.fixture(autouse=True)
+def _clear_table_client_cache():
+    """Reset the module-level TableClient cache between tests."""
+    storage._cached_client = None
+    yield
+    storage._cached_client = None
 
 
 class TestGetTableClient:
@@ -20,6 +30,17 @@ class TestGetTableClient:
         mock_service.create_table_if_not_exists.assert_called_once_with("reporthistory")
         mock_service.get_table_client.assert_called_once_with("reporthistory")
         assert client == mock_service.get_table_client.return_value
+
+    @patch("storage.TableServiceClient")
+    def test_caches_client(self, MockTableService):
+        mock_service = MagicMock()
+        MockTableService.from_connection_string.return_value = mock_service
+
+        client1 = storage._get_table_client()
+        client2 = storage._get_table_client()
+
+        assert client1 is client2
+        MockTableService.from_connection_string.assert_called_once()
 
 
 class TestSaveReportRecord:
@@ -72,6 +93,35 @@ class TestSaveReportRecord:
 
         entity = mock_table.upsert_entity.call_args[0][0]
         assert entity["dmarc_failure_details_json"] == '[{"source_ip":"1.2.3.4","count":2}]'
+
+
+class TestReportExists:
+    @patch("storage._get_table_client")
+    def test_returns_true_when_found(self, mock_get_client):
+        mock_table = MagicMock()
+        mock_table.query_entities.return_value = [{"RowKey": "dmarc_test-123"}]
+        mock_get_client.return_value = mock_table
+
+        assert storage.report_exists("dmarc", "test-123") is True
+        mock_table.query_entities.assert_called_once()
+
+    @patch("storage._get_table_client")
+    def test_returns_false_when_not_found(self, mock_get_client):
+        mock_table = MagicMock()
+        mock_table.query_entities.return_value = []
+        mock_get_client.return_value = mock_table
+
+        assert storage.report_exists("dmarc", "nonexistent") is False
+
+    @patch("storage._get_table_client")
+    def test_uses_correct_row_key_format(self, mock_get_client):
+        mock_table = MagicMock()
+        mock_table.query_entities.return_value = []
+        mock_get_client.return_value = mock_table
+
+        storage.report_exists("tlsrpt", "report-456")
+        query_filter = mock_table.query_entities.call_args[0][0]
+        assert "tlsrpt_report-456" in query_filter
 
 
 class TestQueryPeriod:

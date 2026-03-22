@@ -10,13 +10,13 @@ All configuration is via environment variables (Azure Function App Settings).
 | `AZURE_CLIENT_ID` | App registration client ID |
 | `AZURE_CLIENT_SECRET` | Client secret (use a [Key Vault reference](https://learn.microsoft.com/en-us/azure/app-service/app-service-key-vault-references)) |
 | `REPORT_MAILBOX` | Shared mailbox address (e.g., `emailreports@yourdomain.com`) |
-| `DMARC_ALIAS` | Alias that receives DMARC reports (e.g., `dmarc-reports@yourdomain.com`) |
-| `TLSRPT_ALIAS` | Alias that receives TLS-RPT reports (e.g., `tls-reports@yourdomain.com`) |
 
 ## Report Processing
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `DMARC_ALIAS` | *(blank)* | Alias that receives DMARC reports (e.g., `dmarc-reports@yourdomain.com`). Both blank = fallback mode (try both parsers) |
+| `TLSRPT_ALIAS` | *(blank)* | Alias that receives TLS-RPT reports (e.g., `tls-reports@yourdomain.com`) |
 | `MAIL_FOLDER` | *(blank = Inbox)* | Read from this folder instead of Inbox |
 | `TIMER_SCHEDULE_CRON` | `0 */30 * * * *` | How often to check for new reports ([NCRONTAB format](https://learn.microsoft.com/en-us/azure/azure-functions/functions-bindings-timer#ncrontab-expressions)) |
 | `DELETE_AFTER_DAYS` | `-1` | Delete read messages after N days. `0` = delete immediately after processing, `-1` = never delete |

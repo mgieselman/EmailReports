@@ -18,8 +18,9 @@ Built for **small organizations (<200 users)** that want automated email securit
 - **DMARC & TLS-RPT parsing** — handles .xml, .json, .gz, and .zip attachments from any reporting provider
 - **Multi-channel alerts** — Teams (Adaptive Cards), email (HTML dashboard), and generic webhook (JSON POST for Slack/Discord/n8n)
 - **Weekly summary digest** — configurable periodic email with top senders, pass rates, policy distribution, and failure sources
+- **Report deduplication** — skips reports already processed (idempotent reruns)
 - **Email lifecycle** — move processed messages to a folder, auto-delete after N days
-- **IT dashboard emails** — dark header, KPI stat cards, color-coded PASS/FAIL badges, detailed results tables
+- **Dark console dashboard emails** — dark theme, monospace IPs, color-coded PASS/FAIL, high-contrast stat cards
 
 ## How it works
 
@@ -115,16 +116,17 @@ See [Monitoring Guide](docs/monitoring.md) for full details. Three layers:
 ├── dmarc_parser.py         # DMARC RUA XML parsing
 ├── tlsrpt_parser.py        # TLS-RPT JSON parsing
 ├── attachment_util.py      # Shared decompression (gz/zip)
-├── alert.py                # ViewModel — severity logic, data prep, delivery
-├── storage.py              # Table Storage for report tracking
+├── alert.py                # ViewModel — severity logic, data aggregation
+├── delivery.py             # Delivery — Teams, email, generic webhook
+├── storage.py              # Table Storage for report tracking + deduplication
 ├── models.py               # Dataclasses and enums
 ├── templates/              # Jinja2 HTML templates (View layer)
 │   ├── base.html           # Dashboard layout (header, cards, footer)
-│   ├── macros.html         # Reusable components (badges, tables, styled text)
+│   ├── macros.html         # Reusable macros (th/td, badges, styled text)
 │   ├── dmarc_alert.html
 │   ├── tlsrpt_alert.html
 │   └── weekly_summary.html
-├── tests/                  # 204 tests, 100% coverage
+├── tests/                  # 233 tests, 100% coverage
 ├── .github/workflows/      # CI (lint+test+gitleaks) + deploy
 └── docs/                   # Setup, config, and monitoring guides
 ```

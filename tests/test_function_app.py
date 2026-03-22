@@ -84,13 +84,15 @@ class TestParseAttachments:
 
         return _parse_attachments
 
-    def test_empty_attachments(self):
+    @patch("function_app.storage")
+    def test_empty_attachments(self, mock_storage):
         import alert as alert_mod
 
         fn = self._get_fn()
         assert fn([], "test subject", dmarc_parser.parse_attachment, alert_mod.build_dmarc_alert) == []
 
-    def test_attachment_no_content_bytes(self):
+    @patch("function_app.storage")
+    def test_attachment_no_content_bytes(self, mock_storage):
         import alert as alert_mod
 
         fn = self._get_fn()
@@ -98,24 +100,29 @@ class TestParseAttachments:
         result = fn(atts, "test", dmarc_parser.parse_attachment, alert_mod.build_dmarc_alert)
         assert result == []
 
-    def test_valid_dmarc_attachment(self, dmarc_b64_gz):
+    @patch("function_app.storage")
+    def test_valid_dmarc_attachment(self, mock_storage, dmarc_b64_gz):
         import alert as alert_mod
 
+        mock_storage.report_exists.return_value = False
         fn = self._get_fn()
         attachments = [{"name": "report.xml.gz", "contentBytes": dmarc_b64_gz}]
         result = fn(attachments, "test subject", dmarc_parser.parse_attachment, alert_mod.build_dmarc_alert)
         assert len(result) == 1
         assert result[0].severity in (AlertSeverity.INFO, AlertSeverity.WARNING, AlertSeverity.CRITICAL)
 
-    def test_valid_tlsrpt_attachment(self, tlsrpt_b64_gz):
+    @patch("function_app.storage")
+    def test_valid_tlsrpt_attachment(self, mock_storage, tlsrpt_b64_gz):
         import alert as alert_mod
 
+        mock_storage.report_exists.return_value = False
         fn = self._get_fn()
         attachments = [{"name": "report.json.gz", "contentBytes": tlsrpt_b64_gz}]
         result = fn(attachments, "test subject", tlsrpt_parser.parse_attachment, alert_mod.build_tlsrpt_alert)
         assert len(result) == 1
 
-    def test_non_matching_attachment_ignored(self):
+    @patch("function_app.storage")
+    def test_non_matching_attachment_ignored(self, mock_storage):
         import alert as alert_mod
 
         fn = self._get_fn()
@@ -123,9 +130,11 @@ class TestParseAttachments:
         result = fn(attachments, "test", dmarc_parser.parse_attachment, alert_mod.build_dmarc_alert)
         assert result == []
 
-    def test_multiple_attachments(self, dmarc_b64_gz):
+    @patch("function_app.storage")
+    def test_multiple_attachments(self, mock_storage, dmarc_b64_gz):
         import alert as alert_mod
 
+        mock_storage.report_exists.return_value = False
         fn = self._get_fn()
         attachments = [
             {"name": "report1.xml.gz", "contentBytes": dmarc_b64_gz},
@@ -133,6 +142,18 @@ class TestParseAttachments:
         ]
         result = fn(attachments, "test", dmarc_parser.parse_attachment, alert_mod.build_dmarc_alert)
         assert len(result) == 2
+
+    @patch("function_app.storage")
+    def test_duplicate_report_skipped(self, mock_storage, dmarc_b64_gz):
+        """A report already in storage should not produce an alert."""
+        import alert as alert_mod
+
+        mock_storage.report_exists.return_value = True
+        fn = self._get_fn()
+        attachments = [{"name": "report.xml.gz", "contentBytes": dmarc_b64_gz}]
+        result = fn(attachments, "test", dmarc_parser.parse_attachment, alert_mod.build_dmarc_alert)
+        assert result == []
+        mock_storage.save_report_record.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -157,9 +178,9 @@ class TestProcessEmailReports:
         MockGraphClient.return_value.__exit__ = MagicMock(return_value=False)
         return mock_client
 
-    @patch("function_app.alert")
+    @patch("function_app.delivery")
     @patch("function_app.GraphClient")
-    def test_no_messages(self, MockGraphClient, mock_alert, monkeypatch):
+    def test_no_messages(self, MockGraphClient, mock_delivery, monkeypatch):
         mock_client = self._setup_graph_mock(MockGraphClient)
         mock_client.list_unread_messages.return_value = []
 
@@ -169,12 +190,12 @@ class TestProcessEmailReports:
         timer.past_due = False
         process_email_reports(timer)
 
-        mock_alert.send_teams_alert.assert_not_called()
-        mock_alert.send_email_alert.assert_not_called()
+        mock_delivery.send_teams_alert.assert_not_called()
+        mock_delivery.send_email_alert.assert_not_called()
 
-    @patch("function_app.alert")
+    @patch("function_app.delivery")
     @patch("function_app.GraphClient")
-    def test_message_no_attachments_marked_read(self, MockGraphClient, mock_alert):
+    def test_message_no_attachments_marked_read(self, MockGraphClient, mock_delivery):
         mock_client = self._setup_graph_mock(MockGraphClient)
         msg = self._make_message("1", "dmarc-reports@gieselman.com", has_attachments=False)
         mock_client.list_unread_messages.return_value = [msg]
@@ -187,9 +208,11 @@ class TestProcessEmailReports:
 
         mock_client.mark_as_read.assert_called_once()
 
-    @patch("function_app.alert")
+    @patch("function_app.storage")
+    @patch("function_app.delivery")
     @patch("function_app.GraphClient")
-    def test_dmarc_message_routed_correctly(self, MockGraphClient, mock_alert, dmarc_b64_gz):
+    def test_dmarc_message_routed_correctly(self, MockGraphClient, mock_delivery, mock_storage, dmarc_b64_gz):
+        mock_storage.report_exists.return_value = False
         mock_client = self._setup_graph_mock(MockGraphClient)
         msg = self._make_message("1", "dmarc-reports@gieselman.com")
         mock_client.list_unread_messages.return_value = [msg]
@@ -201,13 +224,13 @@ class TestProcessEmailReports:
         timer.past_due = False
         process_email_reports(timer)
 
-        mock_alert.build_dmarc_alert.assert_called_once()
-        mock_alert.build_tlsrpt_alert.assert_not_called()
-        mock_alert.send_teams_alert.assert_called()
+        mock_delivery.send_teams_alert.assert_called()
 
-    @patch("function_app.alert")
+    @patch("function_app.storage")
+    @patch("function_app.delivery")
     @patch("function_app.GraphClient")
-    def test_tlsrpt_message_routed_correctly(self, MockGraphClient, mock_alert, tlsrpt_b64_gz):
+    def test_tlsrpt_message_routed_correctly(self, MockGraphClient, mock_delivery, mock_storage, tlsrpt_b64_gz):
+        mock_storage.report_exists.return_value = False
         mock_client = self._setup_graph_mock(MockGraphClient)
         msg = self._make_message("1", "tls-reports@gieselman.com")
         mock_client.list_unread_messages.return_value = [msg]
@@ -219,13 +242,13 @@ class TestProcessEmailReports:
         timer.past_due = False
         process_email_reports(timer)
 
-        mock_alert.build_tlsrpt_alert.assert_called_once()
-        mock_alert.build_dmarc_alert.assert_not_called()
-        mock_alert.send_teams_alert.assert_called()
+        mock_delivery.send_teams_alert.assert_called()
 
-    @patch("function_app.alert")
+    @patch("function_app.storage")
+    @patch("function_app.delivery")
     @patch("function_app.GraphClient")
-    def test_unknown_recipient_tries_both_parsers(self, MockGraphClient, mock_alert, dmarc_b64_gz):
+    def test_unknown_recipient_tries_both_parsers(self, MockGraphClient, mock_delivery, mock_storage, dmarc_b64_gz):
+        mock_storage.report_exists.return_value = False
         mock_client = self._setup_graph_mock(MockGraphClient)
         msg = self._make_message("1", "other@gieselman.com")
         mock_client.list_unread_messages.return_value = [msg]
@@ -237,12 +260,11 @@ class TestProcessEmailReports:
         timer.past_due = False
         process_email_reports(timer)
 
-        mock_alert.build_dmarc_alert.assert_called_once()
-        mock_alert.send_teams_alert.assert_called()
+        mock_delivery.send_teams_alert.assert_called()
 
-    @patch("function_app.alert")
+    @patch("function_app.delivery")
     @patch("function_app.GraphClient")
-    def test_past_due_still_runs(self, MockGraphClient, mock_alert):
+    def test_past_due_still_runs(self, MockGraphClient, mock_delivery):
         mock_client = self._setup_graph_mock(MockGraphClient)
         mock_client.list_unread_messages.return_value = []
 
@@ -254,9 +276,11 @@ class TestProcessEmailReports:
 
         mock_client.list_unread_messages.assert_called_once()
 
-    @patch("function_app.alert")
+    @patch("function_app.storage")
+    @patch("function_app.delivery")
     @patch("function_app.GraphClient")
-    def test_all_messages_marked_read(self, MockGraphClient, mock_alert, dmarc_b64_gz, tlsrpt_b64_gz):
+    def test_all_messages_marked_read(self, MockGraphClient, mock_delivery, mock_storage, dmarc_b64_gz, tlsrpt_b64_gz):
+        mock_storage.report_exists.return_value = False
         mock_client = self._setup_graph_mock(MockGraphClient)
         msgs = [
             self._make_message("1", "dmarc-reports@gieselman.com"),
@@ -277,10 +301,12 @@ class TestProcessEmailReports:
 
         assert mock_client.mark_as_read.call_count == 3
 
-    @patch("function_app.alert")
+    @patch("function_app.storage")
+    @patch("function_app.delivery")
     @patch("function_app.GraphClient")
-    def test_immediate_delete(self, MockGraphClient, mock_alert, monkeypatch, dmarc_b64_gz):
+    def test_immediate_delete(self, MockGraphClient, mock_delivery, mock_storage, monkeypatch, dmarc_b64_gz):
         monkeypatch.setenv("DELETE_AFTER_DAYS", "0")
+        mock_storage.report_exists.return_value = False
         mock_client = self._setup_graph_mock(MockGraphClient)
         msg = self._make_message("1", "dmarc-reports@gieselman.com")
         mock_client.list_unread_messages.return_value = [msg]
@@ -294,10 +320,12 @@ class TestProcessEmailReports:
 
         mock_client.delete_message.assert_called_once_with("emailreports@gieselman.com", "1")
 
-    @patch("function_app.alert")
+    @patch("function_app.storage")
+    @patch("function_app.delivery")
     @patch("function_app.GraphClient")
-    def test_no_delete_when_minus_one(self, MockGraphClient, mock_alert, monkeypatch, dmarc_b64_gz):
+    def test_no_delete_when_minus_one(self, MockGraphClient, mock_delivery, mock_storage, monkeypatch, dmarc_b64_gz):
         monkeypatch.setenv("DELETE_AFTER_DAYS", "-1")
+        mock_storage.report_exists.return_value = False
         mock_client = self._setup_graph_mock(MockGraphClient)
         msg = self._make_message("1", "dmarc-reports@gieselman.com")
         mock_client.list_unread_messages.return_value = [msg]
@@ -311,9 +339,9 @@ class TestProcessEmailReports:
 
         mock_client.delete_message.assert_not_called()
 
-    @patch("function_app.alert")
+    @patch("function_app.delivery")
     @patch("function_app.GraphClient")
-    def test_deferred_delete(self, MockGraphClient, mock_alert, monkeypatch):
+    def test_deferred_delete(self, MockGraphClient, mock_delivery, monkeypatch):
         monkeypatch.setenv("DELETE_AFTER_DAYS", "30")
         mock_client = self._setup_graph_mock(MockGraphClient)
         mock_client.list_unread_messages.return_value = []
@@ -331,11 +359,13 @@ class TestProcessEmailReports:
         assert mock_client.delete_message.call_count == 2
         mock_client.list_read_messages_older_than.assert_called_once_with("emailreports@gieselman.com", 30, folder=None)
 
-    @patch("function_app.alert")
+    @patch("function_app.storage")
+    @patch("function_app.delivery")
     @patch("function_app.GraphClient")
-    def test_move_processed_to_folder(self, MockGraphClient, mock_alert, monkeypatch, dmarc_b64_gz):
+    def test_move_processed_to_folder(self, MockGraphClient, mock_delivery, mock_storage, monkeypatch, dmarc_b64_gz):
         monkeypatch.setenv("DELETE_AFTER_DAYS", "-1")
         monkeypatch.setenv("MOVE_PROCESSED_TO", "Processed")
+        mock_storage.report_exists.return_value = False
         mock_client = self._setup_graph_mock(MockGraphClient)
         msg = self._make_message("1", "dmarc-reports@gieselman.com")
         mock_client.list_unread_messages.return_value = [msg]
@@ -350,12 +380,14 @@ class TestProcessEmailReports:
         mock_client.move_message.assert_called_once_with("emailreports@gieselman.com", "1", "Processed")
         mock_client.delete_message.assert_not_called()
 
-    @patch("function_app.alert")
+    @patch("function_app.storage")
+    @patch("function_app.delivery")
     @patch("function_app.GraphClient")
-    def test_immediate_delete_skips_move(self, MockGraphClient, mock_alert, monkeypatch, dmarc_b64_gz):
+    def test_immediate_delete_skips_move(self, MockGraphClient, mock_delivery, mock_storage, monkeypatch, dmarc_b64_gz):
         """When DELETE_AFTER_DAYS=0, delete takes priority over move."""
         monkeypatch.setenv("DELETE_AFTER_DAYS", "0")
         monkeypatch.setenv("MOVE_PROCESSED_TO", "Processed")
+        mock_storage.report_exists.return_value = False
         mock_client = self._setup_graph_mock(MockGraphClient)
         msg = self._make_message("1", "dmarc-reports@gieselman.com")
         mock_client.list_unread_messages.return_value = [msg]
@@ -370,9 +402,11 @@ class TestProcessEmailReports:
         mock_client.delete_message.assert_called_once()
         mock_client.move_message.assert_not_called()
 
-    @patch("function_app.alert")
+    @patch("function_app.storage")
+    @patch("function_app.delivery")
     @patch("function_app.GraphClient")
-    def test_generic_webhook_called(self, MockGraphClient, mock_alert, dmarc_b64_gz):
+    def test_generic_webhook_called(self, MockGraphClient, mock_delivery, mock_storage, dmarc_b64_gz):
+        mock_storage.report_exists.return_value = False
         mock_client = self._setup_graph_mock(MockGraphClient)
         msg = self._make_message("1", "dmarc-reports@gieselman.com")
         mock_client.list_unread_messages.return_value = [msg]
@@ -384,12 +418,14 @@ class TestProcessEmailReports:
         timer.past_due = False
         process_email_reports(timer)
 
-        mock_alert.send_generic_webhook.assert_called()
+        mock_delivery.send_generic_webhook.assert_called()
 
-    @patch("function_app.alert")
+    @patch("function_app.storage")
+    @patch("function_app.delivery")
     @patch("function_app.GraphClient")
-    def test_single_message_failure_continues(self, MockGraphClient, mock_alert, dmarc_b64_gz):
+    def test_single_message_failure_continues(self, MockGraphClient, mock_delivery, mock_storage, dmarc_b64_gz):
         """A failure on one message should not skip subsequent messages."""
+        mock_storage.report_exists.return_value = False
         mock_client = self._setup_graph_mock(MockGraphClient)
         msgs = [
             self._make_message("1", "dmarc-reports@gieselman.com"),
@@ -411,11 +447,11 @@ class TestProcessEmailReports:
             process_email_reports(timer)
 
         # Second message still processed
-        mock_alert.build_dmarc_alert.assert_called_once()
+        mock_delivery.send_teams_alert.assert_called()
 
-    @patch("function_app.alert")
+    @patch("function_app.delivery")
     @patch("function_app.GraphClient")
-    def test_cleanup_delete_failure_continues(self, MockGraphClient, mock_alert, monkeypatch):
+    def test_cleanup_delete_failure_continues(self, MockGraphClient, mock_delivery, monkeypatch):
         """A delete failure on one old message should not abort cleanup."""
         monkeypatch.setenv("DELETE_AFTER_DAYS", "30")
         mock_client = self._setup_graph_mock(MockGraphClient)
@@ -434,9 +470,9 @@ class TestProcessEmailReports:
 
         assert mock_client.delete_message.call_count == 2
 
-    @patch("function_app.alert")
+    @patch("function_app.delivery")
     @patch("function_app.GraphClient")
-    def test_error_sends_notification_and_reraises(self, MockGraphClient, mock_alert):
+    def test_error_sends_notification_and_reraises(self, MockGraphClient, mock_delivery):
         mock_client = self._setup_graph_mock(MockGraphClient)
         mock_client.list_unread_messages.side_effect = RuntimeError("Token expired")
 
@@ -450,19 +486,19 @@ class TestProcessEmailReports:
         with pytest.raises(RuntimeError, match="Token expired"):
             process_email_reports(timer)
 
-        mock_alert.send_teams_alert.assert_called_once()
-        error_alert = mock_alert.send_teams_alert.call_args[0][0]
+        mock_delivery.send_teams_alert.assert_called_once()
+        error_alert = mock_delivery.send_teams_alert.call_args[0][0]
         assert "Error" in error_alert.title
-        mock_alert.send_generic_webhook.assert_called_once()
+        mock_delivery.send_generic_webhook.assert_called_once()
 
-    @patch("function_app.alert")
+    @patch("function_app.delivery")
     @patch("function_app.GraphClient")
-    def test_error_notification_failure_doesnt_mask_original(self, MockGraphClient, mock_alert):
+    def test_error_notification_failure_doesnt_mask_original(self, MockGraphClient, mock_delivery):
         """If error notification itself fails, the original error still propagates."""
         mock_client = self._setup_graph_mock(MockGraphClient)
         mock_client.list_unread_messages.side_effect = RuntimeError("Graph down")
-        mock_alert.send_teams_alert.side_effect = Exception("Teams also down")
-        mock_alert.send_generic_webhook.side_effect = Exception("Webhook also down")
+        mock_delivery.send_teams_alert.side_effect = Exception("Teams also down")
+        mock_delivery.send_generic_webhook.side_effect = Exception("Webhook also down")
 
         from function_app import process_email_reports
 
@@ -474,10 +510,12 @@ class TestProcessEmailReports:
         with pytest.raises(RuntimeError, match="Graph down"):
             process_email_reports(timer)
 
-    @patch("function_app.alert")
+    @patch("function_app.storage")
+    @patch("function_app.delivery")
     @patch("function_app.GraphClient")
-    def test_alert_delivery_failure_continues(self, MockGraphClient, mock_alert, dmarc_b64_gz):
+    def test_alert_delivery_failure_continues(self, MockGraphClient, mock_delivery, mock_storage, dmarc_b64_gz):
         """A failure delivering one alert should not prevent delivering the rest."""
+        mock_storage.report_exists.return_value = False
         mock_client = self._setup_graph_mock(MockGraphClient)
         msgs = [
             self._make_message("1", "dmarc-reports@gieselman.com"),
@@ -486,8 +524,7 @@ class TestProcessEmailReports:
         mock_client.list_unread_messages.return_value = msgs
         mock_client.get_attachments.return_value = [{"name": "r.xml.gz", "contentBytes": dmarc_b64_gz}]
         # First Teams call fails, second should still happen
-        mock_alert.send_teams_alert.side_effect = [Exception("webhook down"), None]
-        mock_alert.build_dmarc_alert.side_effect = lambda r: MagicMock(title=f"Alert-{r.report_id}")
+        mock_delivery.send_teams_alert.side_effect = [Exception("webhook down"), None]
 
         from function_app import process_email_reports
 
@@ -495,11 +532,11 @@ class TestProcessEmailReports:
         timer.past_due = False
         process_email_reports(timer)
 
-        assert mock_alert.send_teams_alert.call_count == 2
+        assert mock_delivery.send_teams_alert.call_count == 2
 
-    @patch("function_app.alert")
+    @patch("function_app.delivery")
     @patch("function_app.GraphClient")
-    def test_cleanup_uses_move_folder(self, MockGraphClient, mock_alert, monkeypatch):
+    def test_cleanup_uses_move_folder(self, MockGraphClient, mock_delivery, monkeypatch):
         """Cleanup should look in the move-to folder, not the source folder."""
         monkeypatch.setenv("DELETE_AFTER_DAYS", "30")
         monkeypatch.setenv("MOVE_PROCESSED_TO", "Processed")
@@ -540,9 +577,9 @@ class TestProcessEmailReports:
 
 class TestWeeklySummary:
     @patch("function_app.storage")
-    @patch("function_app.alert")
+    @patch("function_app.delivery")
     @patch("function_app.GraphClient")
-    def test_skips_when_disabled(self, MockGraphClient, mock_alert, mock_storage, monkeypatch):
+    def test_skips_when_disabled(self, MockGraphClient, mock_delivery, mock_storage, monkeypatch):
         monkeypatch.setenv("SUMMARY_ENABLED", "false")
 
         from function_app import send_weekly_summary
@@ -553,9 +590,9 @@ class TestWeeklySummary:
         mock_storage.query_period.assert_not_called()
 
     @patch("function_app.storage")
-    @patch("function_app.alert")
+    @patch("function_app.delivery")
     @patch("function_app.GraphClient")
-    def test_sends_when_enabled(self, MockGraphClient, mock_alert, mock_storage, monkeypatch):
+    def test_sends_when_enabled(self, MockGraphClient, mock_delivery, mock_storage, monkeypatch):
         monkeypatch.setenv("SUMMARY_ENABLED", "true")
         monkeypatch.setenv("SUMMARY_DAYS", "7")
 
@@ -575,14 +612,13 @@ class TestWeeklySummary:
         send_weekly_summary(timer)
 
         mock_storage.query_period.assert_called_once_with(days=7)
-        mock_alert.build_weekly_summary.assert_called_once()
-        mock_alert.send_teams_alert.assert_called()
-        mock_alert.send_email_alert.assert_called()
+        mock_delivery.send_teams_alert.assert_called()
+        mock_delivery.send_email_alert.assert_called()
 
     @patch("function_app.storage")
-    @patch("function_app.alert")
+    @patch("function_app.delivery")
     @patch("function_app.GraphClient")
-    def test_skips_when_no_records(self, MockGraphClient, mock_alert, mock_storage, monkeypatch):
+    def test_skips_when_no_records(self, MockGraphClient, mock_delivery, mock_storage, monkeypatch):
         monkeypatch.setenv("SUMMARY_ENABLED", "true")
         mock_storage.query_period.return_value = []
 
@@ -591,13 +627,13 @@ class TestWeeklySummary:
         timer = MagicMock()
         send_weekly_summary(timer)
 
-        mock_alert.build_weekly_summary.assert_not_called()
+        mock_delivery.send_teams_alert.assert_not_called()
 
     @patch("function_app._send_error_notification")
     @patch("function_app.storage")
-    @patch("function_app.alert")
+    @patch("function_app.delivery")
     @patch("function_app.GraphClient")
-    def test_error_sends_notification(self, MockGraphClient, mock_alert, mock_storage, mock_notify, monkeypatch):
+    def test_error_sends_notification(self, MockGraphClient, mock_delivery, mock_storage, mock_notify, monkeypatch):
         monkeypatch.setenv("SUMMARY_ENABLED", "true")
         mock_storage.query_period.side_effect = RuntimeError("storage down")
 

@@ -20,7 +20,7 @@ jobs:
       - name: Install tools
         run: |
           pip install -r requirements.txt
-          pip install ruff mypy bandit types-requests
+          pip install ruff==0.15.6 mypy==1.19.1 bandit==1.9.4 types-requests==2.32.4.20260107
 
       - name: Ruff lint
         run: ruff check .
@@ -46,7 +46,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
-          pip install pytest pytest-cov
+          pip install pytest==9.0.2 pytest-cov==7.0.0
 
       - name: Run tests
         run: pytest tests/ --cov --cov-report=term-missing --cov-report=xml --cov-fail-under=100 -W error::DeprecationWarning

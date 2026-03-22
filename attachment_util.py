@@ -10,6 +10,39 @@ import zipfile
 logger = logging.getLogger(__name__)
 
 MAX_DECOMPRESSED_SIZE = 50 * 1024 * 1024  # 50 MB
+_CHUNK_SIZE = 65536
+
+
+def _safe_gzip_decompress(raw: bytes, filename: str) -> bytes | None:
+    """Decompress gzip data in chunks, aborting if size limit is exceeded."""
+    try:
+        chunks: list[bytes] = []
+        total = 0
+        with gzip.GzipFile(fileobj=io.BytesIO(raw)) as gz:
+            while chunk := gz.read(_CHUNK_SIZE):
+                total += len(chunk)
+                if total > MAX_DECOMPRESSED_SIZE:
+                    logger.warning("Decompressed size exceeds limit for %s", filename)
+                    return None
+                chunks.append(chunk)
+        return b"".join(chunks)
+    except Exception:
+        logger.warning("Failed to gunzip %s", filename)
+        return None
+
+
+def _safe_zip_read(zf: zipfile.ZipFile, entry_name: str, filename: str) -> bytes | None:
+    """Read a zip entry in chunks, aborting if size limit is exceeded."""
+    chunks: list[bytes] = []
+    total = 0
+    with zf.open(entry_name) as f:
+        while chunk := f.read(_CHUNK_SIZE):
+            total += len(chunk)
+            if total > MAX_DECOMPRESSED_SIZE:
+                logger.warning("Decompressed size exceeds limit for %s in %s", entry_name, filename)
+                return None
+            chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def extract_from_attachment(
@@ -27,15 +60,7 @@ def extract_from_attachment(
     if lower.endswith(target_extension):
         return raw
     if lower.endswith(".gz"):
-        try:
-            data = gzip.decompress(raw)
-            if len(data) > MAX_DECOMPRESSED_SIZE:
-                logger.warning("Decompressed size exceeds limit for %s", filename)
-                return None
-            return data
-        except Exception:
-            logger.warning("Failed to gunzip %s (%s)", filename, label)
-            return None
+        return _safe_gzip_decompress(raw, filename)
     if lower.endswith(".zip"):
         try:
             with zipfile.ZipFile(io.BytesIO(raw)) as zf:
@@ -43,11 +68,7 @@ def extract_from_attachment(
                 if not matches:
                     logger.warning("No %s found inside zip %s", target_extension, filename)
                     return None
-                info = zf.getinfo(matches[0])
-                if info.file_size > MAX_DECOMPRESSED_SIZE:
-                    logger.warning("Decompressed size exceeds limit for %s in %s", matches[0], filename)
-                    return None
-                return zf.read(matches[0])
+                return _safe_zip_read(zf, matches[0], filename)
         except Exception:
             logger.warning("Failed to unzip %s (%s)", filename, label)
             return None

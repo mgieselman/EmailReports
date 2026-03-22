@@ -14,12 +14,17 @@ logger = logging.getLogger(__name__)
 
 TABLE_NAME = "reporthistory"
 
+_cached_client: TableClient | None = None
+
 
 def _get_table_client() -> TableClient:
-    conn_str = os.environ["AzureWebJobsStorage"]
-    service = TableServiceClient.from_connection_string(conn_str)
-    service.create_table_if_not_exists(TABLE_NAME)
-    return service.get_table_client(TABLE_NAME)
+    global _cached_client
+    if _cached_client is None:
+        conn_str = os.environ["AzureWebJobsStorage"]
+        service = TableServiceClient.from_connection_string(conn_str)
+        service.create_table_if_not_exists(TABLE_NAME)
+        _cached_client = service.get_table_client(TABLE_NAME)
+    return _cached_client
 
 
 def save_report_record(record: ReportRecord) -> None:
@@ -44,6 +49,20 @@ def save_report_record(record: ReportRecord) -> None:
     }
     table.upsert_entity(entity)
     logger.debug("Saved report record: %s/%s", year_week, entity["RowKey"])
+
+
+def _escape_odata(value: str) -> str:
+    """Escape single quotes for OData filter strings."""
+    return value.replace("'", "''")
+
+
+def report_exists(report_type: str, report_id: str) -> bool:
+    """Check whether a report has already been saved (deduplication)."""
+    table = _get_table_client()
+    # report_id is unique but partition varies by week — use RowKey filter
+    row_key = _escape_odata(f"{report_type}_{report_id}")
+    entities = list(table.query_entities(f"RowKey eq '{row_key}'", select=["RowKey"]))
+    return len(entities) > 0
 
 
 def query_period(days: int = 7) -> list[ReportRecord]:
