@@ -6,7 +6,7 @@
 - **Never override, suppress, or skip linter/security warnings without explicit user approval.** This includes `nosec`, `noqa`, `type: ignore`, bandit skips in pyproject.toml, and ruff per-file-ignores. If a tool flags something, discuss the finding and proposed suppression before applying it.
 - **Run the full CI check locally before proposing a commit:** `ruff check . && ruff format --check . && mypy *.py && bandit -r . -x ./.venv,./tests -ll && pytest tests/ --cov --cov-fail-under=100 -W error::DeprecationWarning`
 - **Always update documentation** when changing features, configuration, project structure, or architecture.
-- **Sample images must use generic data only.** When generating screenshots for docs (e.g., `report.png`), use `example.com`, `mail.example.com`, etc. — never real domains like `gieselman.com`.
+- **Sample images must use generic data only.** When generating screenshots for docs (via `generate_screenshots.py`), use `example.com`, `mail.example.com`, etc. — never real domains like `gieselman.com`.
 
 ## Architecture
 

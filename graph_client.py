@@ -186,17 +186,34 @@ class GraphClient:
 
     # -- send mail -----------------------------------------------------------
 
-    def send_mail(self, from_address: str, to_address: str, subject: str, html_body: str) -> None:
-        """Send an email via Graph ``/sendMail``."""
+    def send_mail(
+        self,
+        from_address: str,
+        to_address: str,
+        subject: str,
+        html_body: str,
+        attachments: list[dict[str, str]] | None = None,
+    ) -> None:
+        """Send an email via Graph ``/sendMail``.
+
+        Each attachment dict must have ``name`` and ``content_b64`` keys.
+        """
         url = f"{GRAPH_BASE}/users/{from_address}/sendMail"
-        payload = {
-            "message": {
-                "subject": subject,
-                "body": {"contentType": "HTML", "content": html_body},
-                "toRecipients": [{"emailAddress": {"address": to_address}}],
-            },
-            "saveToSentItems": "false",
+        message: dict[str, Any] = {
+            "subject": subject,
+            "body": {"contentType": "HTML", "content": html_body},
+            "toRecipients": [{"emailAddress": {"address": to_address}}],
         }
+        if attachments:
+            message["attachments"] = [
+                {
+                    "@odata.type": "#microsoft.graph.fileAttachment",
+                    "name": att["name"],
+                    "contentBytes": att["content_b64"],
+                }
+                for att in attachments
+            ]
+        payload = {"message": message, "saveToSentItems": "false"}
         resp = self._session.post(url, headers=self._headers, json=payload, timeout=REQUEST_TIMEOUT)
         resp.raise_for_status()
         logger.info("Alert email sent to %s", to_address)

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "macros.html" import th, td, row_bg, status_badge, bold, subtle %}
+{% from "macros.html" import th, td, row_bg, status_badge, mono, bold, subtle %}
 
 {% block subtitle %}
 Reporter: <strong style='color:#ffffff'>{{ report.org_name }}</strong> &nbsp;&bull;&nbsp;
@@ -10,7 +10,7 @@ Period: <strong style='color:#ffffff'>{{ report.date_begin.strftime('%Y-%m-%d') 
 {% block content %}
 <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
   <tr>
-    {% for h in ["Domain", "Policy", "Result", "MX Host", "Failed", "Reason"] %}
+    {% for h in ["Domain", "Policy", "Result", "Sending MTA", "MX Host", "Failed", "Reason"] %}
     {{ th(h) }}
     {% endfor %}
   </tr>
@@ -19,7 +19,8 @@ Period: <strong style='color:#ffffff'>{{ report.date_begin.strftime('%Y-%m-%d') 
     {{ td(bold(row.domain)) }}
     {{ td(row.policy_type) }}
     {{ td(status_badge(row.result, pass_value="successful")) }}
-    {{ td(row.mx_host) }}
+    {{ td(mono(row.sending_mta) if row.sending_mta != "—" else subtle("—")) }}
+    {{ td(mono(row.mx_host) if row.mx_host != "—" else subtle("—")) }}
     {{ td(bold(row.failed)) }}
     {{ td(subtle(row.reason)) }}
   </tr>

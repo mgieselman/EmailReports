@@ -14,6 +14,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "test_alert.py" = ["E402"]
 "tests/*" = ["S101"]
+"generate_screenshots.py" = ["S603"]  # subprocess with hardcoded Chrome path, not untrusted input
 "alert.py" = ["E501", "S704"]  # Markup() wraps pre-escaped HTML for Jinja2 autoescape
 
 [tool.mypy]
@@ -31,5 +32,11 @@ ignore_missing_imports = true
 follow_untyped_imports = true
 
 [tool.bandit]
-exclude_dirs = [".venv", "tests"]
+exclude_dirs = [".venv", "tests", "generate_screenshots.py"]
 skips = ["B101", "B704"]  # B704: Markup() wraps pre-escaped HTML (values escaped via html.escape)
+
+[tool.pytest.ini_options]
+addopts = "--cov-config=pyproject.toml"
+
+[tool.coverage.run]
+omit = ["generate_screenshots.py", "test_alert.py"]

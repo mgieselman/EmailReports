@@ -85,4 +85,5 @@ def send_email_alert(alert_summary: AlertSummary, graph: GraphClient) -> None:
 
     from_addr = os.environ["ALERT_EMAIL_FROM"]
     to_addr = os.environ["ALERT_EMAIL_TO"]
-    graph.send_mail(from_addr, to_addr, alert_summary.title, alert_summary.body_html)
+    atts = [{"name": a.name, "content_b64": a.content_b64} for a in alert_summary.attachments] or None
+    graph.send_mail(from_addr, to_addr, alert_summary.title, alert_summary.body_html, attachments=atts)

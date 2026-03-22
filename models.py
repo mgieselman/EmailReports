@@ -127,9 +127,18 @@ class AlertSeverity(StrEnum):
 
 
 @dataclass
+class AlertAttachment:
+    """A file to attach to an alert email."""
+
+    name: str
+    content_b64: str
+
+
+@dataclass
 class AlertSummary:
     title: str
     severity: AlertSeverity
     body_markdown: str
     body_html: str = ""
+    attachments: list[AlertAttachment] = field(default_factory=list)
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))

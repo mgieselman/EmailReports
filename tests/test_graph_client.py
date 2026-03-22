@@ -417,3 +417,20 @@ class TestSendMail:
         call_json = mock_graph._session.post.call_args[1]["json"]
         assert call_json["message"]["subject"] == "Subject"
         assert call_json["message"]["toRecipients"][0]["emailAddress"]["address"] == "to@test.com"
+        assert "attachments" not in call_json["message"]
+
+    def test_sends_with_attachments(self, mock_graph):
+        from graph_client import GraphClient
+
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_graph._session = MagicMock()
+        mock_graph._session.post.return_value = mock_resp
+        type(mock_graph)._headers = PropertyMock(return_value={"Authorization": "Bearer fake"})
+
+        atts = [{"name": "report.xml.gz", "content_b64": "dGVzdA=="}]
+        GraphClient.send_mail(mock_graph, "from@test.com", "to@test.com", "Subject", "<p>body</p>", attachments=atts)
+        call_json = mock_graph._session.post.call_args[1]["json"]
+        assert len(call_json["message"]["attachments"]) == 1
+        assert call_json["message"]["attachments"][0]["name"] == "report.xml.gz"
+        assert call_json["message"]["attachments"][0]["@odata.type"] == "#microsoft.graph.fileAttachment"

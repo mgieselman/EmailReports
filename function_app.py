@@ -257,7 +257,9 @@ def _parse_attachments(
                 logger.info("Skipping duplicate report %s from '%s'", report.report_id, subject)
                 continue
             logger.info("Parsed report %s from '%s'", report.report_id, subject)
-            alerts.append(alert_builder(report))
+            alert_summary = alert_builder(report)
+            alert_summary.attachments.append(models.AlertAttachment(name=name, content_b64=content_b64))
+            alerts.append(alert_summary)
             _save_report(report, content_b64)
     return alerts
 

@@ -95,7 +95,32 @@ class TestSendEmailAlert:
         monkeypatch.setenv("ALERT_EMAIL_TO", "to@test.com")
         a = AlertSummary(title="Test", severity=AlertSeverity.INFO, body_markdown="m", body_html="<p>html</p>")
         delivery.send_email_alert(a, mock_graph)
-        mock_graph.send_mail.assert_called_once_with("from@test.com", "to@test.com", "Test", "<p>html</p>")
+        mock_graph.send_mail.assert_called_once_with(
+            "from@test.com", "to@test.com", "Test", "<p>html</p>", attachments=None
+        )
+
+    def test_sends_with_attachments(self, mock_graph, monkeypatch):
+        monkeypatch.setenv("ALERT_EMAIL_ENABLED", "true")
+        monkeypatch.setenv("ALERT_EMAIL_FROM", "from@test.com")
+        monkeypatch.setenv("ALERT_EMAIL_TO", "to@test.com")
+        from models import AlertAttachment
+
+        att = AlertAttachment(name="report.xml.gz", content_b64="dGVzdA==")
+        a = AlertSummary(
+            title="Test",
+            severity=AlertSeverity.WARNING,
+            body_markdown="m",
+            body_html="<p>html</p>",
+            attachments=[att],
+        )
+        delivery.send_email_alert(a, mock_graph)
+        mock_graph.send_mail.assert_called_once_with(
+            "from@test.com",
+            "to@test.com",
+            "Test",
+            "<p>html</p>",
+            attachments=[{"name": "report.xml.gz", "content_b64": "dGVzdA=="}],
+        )
 
     def test_case_insensitive_enabled(self, mock_graph, monkeypatch):
         monkeypatch.setenv("ALERT_EMAIL_ENABLED", "TRUE")

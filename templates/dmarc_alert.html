@@ -11,7 +11,7 @@ Period: <strong style='color:#ffffff'>{{ report.date_begin.strftime('%Y-%m-%d') 
 {% block content %}
 <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
   <tr>
-    {% for h in ["Source IP", "Count", "DKIM", "SPF", "Header From", "Auth Domain"] %}
+    {% for h in ["Source IP", "Count", "Disposition", "DKIM", "SPF", "Header From", "Envelope From"] %}
     {{ th(h) }}
     {% endfor %}
   </tr>
@@ -19,10 +19,11 @@ Period: <strong style='color:#ffffff'>{{ report.date_begin.strftime('%Y-%m-%d') 
   <tr style="background:{{ row_bg(loop.index0) }}">
     {{ td(mono(r.source_ip)) }}
     {{ td(bold(r.count)) }}
+    {{ td(r.disposition.value|upper) }}
     {{ td(status_badge(r.dkim_result.value)) }}
     {{ td(status_badge(r.spf_result.value)) }}
     {{ td(r.header_from) }}
-    {{ td(subtle(r.dkim_domain or "—")) }}
+    {{ td(subtle(r.envelope_from or "—")) }}
   </tr>
   {% endfor %}
 </table>

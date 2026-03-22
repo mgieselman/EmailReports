@@ -9,7 +9,7 @@
 
 Low-cost Azure Function that processes DMARC aggregate (RUA) and TLS-RPT reports from a Microsoft 365 shared mailbox and sends alerts to Teams, email, and webhooks.
 
-![DMARC email alert example](docs/report.png)
+![Weekly summary email example](docs/sample_weekly.png)
 
 Built for **small organizations (<200 users)** that want automated email security monitoring without the cost of a commercial DMARC service. Runs on the Azure Functions **Flex Consumption** plan — effectively free for most tenants.
 
@@ -126,7 +126,7 @@ See [Monitoring Guide](docs/monitoring.md) for full details. Three layers:
 │   ├── dmarc_alert.html
 │   ├── tlsrpt_alert.html
 │   └── weekly_summary.html
-├── tests/                  # 233 tests, 100% coverage
+├── tests/                  # 235 tests, 100% coverage
 ├── .github/workflows/      # CI (lint+test+gitleaks) + deploy
 └── docs/                   # Setup, config, and monitoring guides
 ```
