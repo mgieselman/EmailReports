@@ -46,6 +46,7 @@ def _parse_json(data: bytes) -> TlsRptReport:
                     result_type=fd.get("result-type", fd.get("result_type", "")),
                     sending_mta_ip=fd.get("sending-mta-ip", fd.get("sending_mta_ip", "")),
                     receiving_mx_hostname=fd.get("receiving-mx-hostname", fd.get("receiving_mx_hostname", "")),
+                    receiving_ip=fd.get("receiving-ip", fd.get("receiving_ip", "")),
                     failed_session_count=fd.get("failed-session-count", fd.get("failed_session_count", 0)),
                     failure_reason_code=fd.get("failure-reason-code", fd.get("failure_reason_code", "")),
                 )

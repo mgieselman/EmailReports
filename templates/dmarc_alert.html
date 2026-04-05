@@ -1,17 +1,34 @@
 {% extends "base.html" %}
-{% from "macros.html" import th, td, row_bg, status_badge, mono, bold, subtle %}
+{% from "macros.html" import th, td, row_bg, status_badge, mono, bold, subtle, truncation_note %}
 
 {% block subtitle %}
 Reporter: <strong style='color:#ffffff'>{{ report.org_name }}</strong> &nbsp;&bull;&nbsp;
 Domain: <strong style='color:#ffffff'>{{ report.domain }}</strong> &nbsp;&bull;&nbsp;
 Period: <strong style='color:#ffffff'>{{ report.date_begin.strftime('%Y-%m-%d') }}</strong> to
 <strong style='color:#ffffff'>{{ report.date_end.strftime('%Y-%m-%d') }}</strong>
+<br>
+DKIM Alignment: <strong style='color:#ffffff'>{{ "Strict" if report.adkim == "s" else "Relaxed" }}</strong> &nbsp;&bull;&nbsp;
+SPF Alignment: <strong style='color:#ffffff'>{{ "Strict" if report.aspf == "s" else "Relaxed" }}</strong>
+{%- if report.sp.value != report.policy.value %}
+&nbsp;&bull;&nbsp; Subdomain Policy: <strong style='color:#ffffff'>{{ report.sp.value|upper }}</strong>
+{%- endif %}
+{%- if report.pct < 100 %}
+&nbsp;&bull;&nbsp; Sampling: <strong style='color:#ef6c00'>{{ report.pct }}%</strong>
+{%- endif %}
 {% endblock %}
 
 {% block content %}
+{% if dkim_only_fail or spf_only_fail %}
+<div style="padding:4px 0 12px;font-size:12px;color:#cccccc">
+  Partial auth failures:
+  {% if dkim_only_fail %}<span style="color:#ef6c00;font-weight:600">{{ dkim_only_fail }}</span> DKIM-only{% endif %}
+  {% if dkim_only_fail and spf_only_fail %}&nbsp;&bull;&nbsp;{% endif %}
+  {% if spf_only_fail %}<span style="color:#ef6c00;font-weight:600">{{ spf_only_fail }}</span> SPF-only{% endif %}
+</div>
+{% endif %}
 <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
   <tr>
-    {% for h in ["Source IP", "Count", "Disposition", "DKIM", "SPF", "Header From", "Envelope From"] %}
+    {% for h in ["Source IP", "Count", "Disposition", "DKIM", "SPF", "DKIM Domain", "SPF Domain", "From", "Envelope From"] %}
     {{ th(h) }}
     {% endfor %}
   </tr>
@@ -22,9 +39,12 @@ Period: <strong style='color:#ffffff'>{{ report.date_begin.strftime('%Y-%m-%d') 
     {{ td(r.disposition.value|upper) }}
     {{ td(status_badge(r.dkim_result.value)) }}
     {{ td(status_badge(r.spf_result.value)) }}
+    {{ td(mono(r.dkim_domain) if r.dkim_domain else subtle("—")) }}
+    {{ td(mono(r.spf_domain) if r.spf_domain else subtle("—")) }}
     {{ td(r.header_from) }}
     {{ td(subtle(r.envelope_from or "—")) }}
   </tr>
   {% endfor %}
 </table>
+{{ truncation_note(shown_record_count, total_record_count) }}
 {% endblock %}

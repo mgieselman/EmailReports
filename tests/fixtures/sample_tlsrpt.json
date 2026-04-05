@@ -20,6 +20,7 @@
           "result-type": "certificate-expired",
           "sending-mta-ip": "209.85.220.41",
           "receiving-mx-hostname": "mail.gieselman.com",
+          "receiving-ip": "192.0.2.1",
           "failed-session-count": 2,
           "failure-reason-code": "Certificate has expired"
         }

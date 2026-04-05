@@ -42,6 +42,11 @@ def _parse_xml(data: bytes) -> DmarcReport:
     pp = root.find("policy_published")
     domain = _text(pp, "domain")
     policy = DmarcDisposition(_text(pp, "p", "none"))
+    adkim = _text(pp, "adkim", "r")
+    aspf = _text(pp, "aspf", "r")
+    sp = DmarcDisposition(_text(pp, "sp", _text(pp, "p", "none")))  # sp defaults to p per RFC 7489
+    pct_str = _text(pp, "pct", "100")
+    pct = int(pct_str) if pct_str.isdigit() else 100
 
     # -- records
     records: list[DmarcRecord] = []
@@ -93,6 +98,10 @@ def _parse_xml(data: bytes) -> DmarcReport:
         domain=domain,
         policy=policy,
         records=records,
+        adkim=adkim,
+        aspf=aspf,
+        sp=sp,
+        pct=pct,
     )
 
 

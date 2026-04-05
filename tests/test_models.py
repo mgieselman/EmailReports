@@ -80,6 +80,63 @@ class TestDmarcReport:
         assert report.failing_records[0].count == 3
         assert report.total_messages == 113
 
+    def test_default_adkim_aspf(self):
+        report = self._make_report()
+        assert report.adkim == "r"
+        assert report.aspf == "r"
+
+    def test_default_sp(self):
+        report = self._make_report()
+        assert report.sp == DmarcDisposition.NONE
+
+    def test_default_pct(self):
+        report = self._make_report()
+        assert report.pct == 100
+
+    def test_dkim_only_fail_records(self):
+        records = [
+            self._make_record(count=10, dkim="fail", spf="pass"),
+            self._make_record(count=5, dkim="pass", spf="pass"),
+            self._make_record(count=3, dkim="fail", spf="fail"),
+        ]
+        report = self._make_report(records)
+        assert len(report.dkim_only_fail_records) == 1
+        assert report.dkim_only_fail_records[0].count == 10
+
+    def test_spf_only_fail_records(self):
+        records = [
+            self._make_record(count=10, dkim="pass", spf="fail"),
+            self._make_record(count=5, dkim="pass", spf="pass"),
+            self._make_record(count=3, dkim="fail", spf="fail"),
+        ]
+        report = self._make_report(records)
+        assert len(report.spf_only_fail_records) == 1
+        assert report.spf_only_fail_records[0].count == 10
+
+    def test_partial_fail_empty_when_all_pass(self):
+        records = [self._make_record(count=10, dkim="pass", spf="pass")]
+        report = self._make_report(records)
+        assert report.dkim_only_fail_records == []
+        assert report.spf_only_fail_records == []
+
+    def test_custom_alignment_fields(self):
+        report = DmarcReport(
+            org_name="test.com",
+            report_id="test-1",
+            date_begin=datetime(2024, 1, 1, tzinfo=UTC),
+            date_end=datetime(2024, 1, 2, tzinfo=UTC),
+            domain="example.com",
+            policy=DmarcDisposition.REJECT,
+            adkim="s",
+            aspf="s",
+            sp=DmarcDisposition.QUARANTINE,
+            pct=50,
+        )
+        assert report.adkim == "s"
+        assert report.aspf == "s"
+        assert report.sp == DmarcDisposition.QUARANTINE
+        assert report.pct == 50
+
 
 # ---------------------------------------------------------------------------
 # TlsRptReport

@@ -8,24 +8,24 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import storage
-from models import ReportRecord
+from models import AbuseReportRecord, ReportRecord
 
 
 @pytest.fixture(autouse=True)
 def _clear_table_client_cache():
     """Reset the module-level TableClient cache between tests."""
-    storage._cached_client = None
+    storage._cached_clients.clear()
     yield
-    storage._cached_client = None
+    storage._cached_clients.clear()
 
 
-class TestGetTableClient:
+class TestGetTable:
     @patch("storage.TableServiceClient")
     def test_creates_table_if_not_exists(self, MockTableService):
         mock_service = MagicMock()
         MockTableService.from_connection_string.return_value = mock_service
 
-        client = storage._get_table_client()
+        client = storage._get_table("reporthistory")
 
         mock_service.create_table_if_not_exists.assert_called_once_with("reporthistory")
         mock_service.get_table_client.assert_called_once_with("reporthistory")
@@ -36,15 +36,15 @@ class TestGetTableClient:
         mock_service = MagicMock()
         MockTableService.from_connection_string.return_value = mock_service
 
-        client1 = storage._get_table_client()
-        client2 = storage._get_table_client()
+        client1 = storage._get_table("reporthistory")
+        client2 = storage._get_table("reporthistory")
 
         assert client1 is client2
         MockTableService.from_connection_string.assert_called_once()
 
 
 class TestSaveReportRecord:
-    @patch("storage._get_table_client")
+    @patch("storage._get_table")
     def test_saves_entity(self, mock_get_client):
         mock_table = MagicMock()
         mock_get_client.return_value = mock_table
@@ -73,7 +73,7 @@ class TestSaveReportRecord:
         assert entity["dmarc_failure_details_json"] == ""
         assert entity["tls_failure_details_json"] == ""
 
-    @patch("storage._get_table_client")
+    @patch("storage._get_table")
     def test_saves_failure_details_json(self, mock_get_client):
         mock_table = MagicMock()
         mock_get_client.return_value = mock_table
@@ -96,7 +96,7 @@ class TestSaveReportRecord:
 
 
 class TestReportExists:
-    @patch("storage._get_table_client")
+    @patch("storage._get_table")
     def test_returns_true_when_found(self, mock_get_client):
         mock_table = MagicMock()
         mock_table.query_entities.return_value = [{"RowKey": "dmarc_test-123"}]
@@ -105,7 +105,7 @@ class TestReportExists:
         assert storage.report_exists("dmarc", "test-123") is True
         mock_table.query_entities.assert_called_once()
 
-    @patch("storage._get_table_client")
+    @patch("storage._get_table")
     def test_returns_false_when_not_found(self, mock_get_client):
         mock_table = MagicMock()
         mock_table.query_entities.return_value = []
@@ -113,7 +113,7 @@ class TestReportExists:
 
         assert storage.report_exists("dmarc", "nonexistent") is False
 
-    @patch("storage._get_table_client")
+    @patch("storage._get_table")
     def test_uses_correct_row_key_format(self, mock_get_client):
         mock_table = MagicMock()
         mock_table.query_entities.return_value = []
@@ -125,7 +125,7 @@ class TestReportExists:
 
 
 class TestQueryPeriod:
-    @patch("storage._get_table_client")
+    @patch("storage._get_table")
     def test_returns_records(self, mock_get_client):
         mock_table = MagicMock()
         mock_table.query_entities.return_value = [
@@ -154,7 +154,7 @@ class TestQueryPeriod:
         assert records[0].dmarc_failure_details_json == '[{"source_ip":"1.2.3.4"}]'
         assert records[0].tls_failure_details_json == ""
 
-    @patch("storage._get_table_client")
+    @patch("storage._get_table")
     def test_missing_json_fields_default_to_empty(self, mock_get_client):
         """Old records without failure detail fields should get empty strings."""
         mock_table = MagicMock()
@@ -172,7 +172,7 @@ class TestQueryPeriod:
         assert records[0].dmarc_failure_details_json == ""
         assert records[0].tls_failure_details_json == ""
 
-    @patch("storage._get_table_client")
+    @patch("storage._get_table")
     def test_empty_result(self, mock_get_client):
         mock_table = MagicMock()
         mock_table.query_entities.return_value = []
@@ -181,7 +181,7 @@ class TestQueryPeriod:
         records = storage.query_period(days=7)
         assert records == []
 
-    @patch("storage._get_table_client")
+    @patch("storage._get_table")
     def test_handles_naive_datetime(self, mock_get_client):
         mock_table = MagicMock()
         mock_table.query_entities.return_value = [
@@ -196,3 +196,152 @@ class TestQueryPeriod:
 
         records = storage.query_period(days=7)
         assert records[0].received_at.tzinfo == UTC
+
+
+class TestQueryPeriodRange:
+    @patch("storage._get_table")
+    def test_returns_records_in_range(self, mock_get_client):
+        mock_table = MagicMock()
+        mock_table.query_entities.return_value = [
+            {
+                "RowKey": "dmarc_prev-1",
+                "report_type": "dmarc",
+                "org_name": "google.com",
+                "domain": "example.com",
+                "total_messages": 50,
+                "pass_count": 48,
+                "fail_count": 2,
+                "received_at": datetime(2026, 3, 10, tzinfo=UTC),
+            }
+        ]
+        mock_get_client.return_value = mock_table
+
+        records = storage.query_period_range(14, 7)
+        assert len(records) == 1
+        assert records[0].report_id == "prev-1"
+        # Verify filter uses both ge and lt
+        query_filter = mock_table.query_entities.call_args[0][0]
+        assert "ge datetime'" in query_filter
+        assert "lt datetime'" in query_filter
+
+    @patch("storage._get_table")
+    def test_empty_range(self, mock_get_client):
+        mock_table = MagicMock()
+        mock_table.query_entities.return_value = []
+        mock_get_client.return_value = mock_table
+
+        records = storage.query_period_range(14, 7)
+        assert records == []
+
+
+# ---------------------------------------------------------------------------
+# Abuse report tracking
+# ---------------------------------------------------------------------------
+
+
+class TestGetTableAbuseReports:
+    @patch("storage.TableServiceClient")
+    def test_creates_abuse_table_if_not_exists(self, MockTableService):
+        mock_service = MagicMock()
+        MockTableService.from_connection_string.return_value = mock_service
+
+        client = storage._get_table("abusereports")
+
+        mock_service.create_table_if_not_exists.assert_called_once_with("abusereports")
+        mock_service.get_table_client.assert_called_once_with("abusereports")
+        assert client == mock_service.get_table_client.return_value
+
+    @patch("storage.TableServiceClient")
+    def test_different_tables_cached_separately(self, MockTableService):
+        mock_service = MagicMock()
+        MockTableService.from_connection_string.return_value = mock_service
+
+        storage._get_table("reporthistory")
+        storage._get_table("abusereports")
+
+        assert mock_service.create_table_if_not_exists.call_count == 2
+        assert len(storage._cached_clients) == 2
+
+
+class TestAbuseReportExists:
+    @patch("storage._get_table")
+    def test_returns_true_when_found(self, mock_get_table):
+        mock_table = MagicMock()
+        mock_table.get_entity.return_value = {"RowKey": "74.208.4.196"}
+        mock_get_table.return_value = mock_table
+
+        assert storage.abuse_report_exists("74.208.4.196") is True
+        mock_table.get_entity.assert_called_once()
+
+    @patch("storage._get_table")
+    def test_returns_false_when_not_found(self, mock_get_table):
+        mock_table = MagicMock()
+        mock_table.get_entity.side_effect = Exception("not found")
+        mock_get_table.return_value = mock_table
+
+        assert storage.abuse_report_exists("74.208.4.196") is False
+
+    @patch("storage._get_table")
+    def test_uses_point_read_with_correct_keys(self, mock_get_table):
+        mock_table = MagicMock()
+        mock_table.get_entity.side_effect = Exception("not found")
+        mock_get_table.return_value = mock_table
+
+        storage.abuse_report_exists("1.2.3.4")
+        call_args = mock_table.get_entity.call_args
+        assert call_args[0][1] == "1.2.3.4"
+
+
+class TestSaveAbuseReport:
+    @patch("storage._get_table")
+    def test_saves_entity(self, mock_get_client):
+        mock_table = MagicMock()
+        mock_get_client.return_value = mock_table
+
+        record = AbuseReportRecord(
+            source_ip="74.208.4.196",
+            abuse_email="abuse@ionos.com",
+            domain="gieselman.com",
+            report_count=1,
+            sent_at=datetime(2026, 4, 3, tzinfo=UTC),
+        )
+        storage.save_abuse_report(record)
+
+        mock_table.upsert_entity.assert_called_once()
+        entity = mock_table.upsert_entity.call_args[0][0]
+        assert entity["RowKey"] == "74.208.4.196"
+        assert entity["abuse_email"] == "abuse@ionos.com"
+        assert entity["domain"] == "gieselman.com"
+        assert entity["report_count"] == 1
+        assert entity["PartitionKey"] == "2026-W13"
+
+
+class TestCountAbuseReports:
+    @patch("storage._get_table")
+    def test_counts_recent_reports(self, mock_get_client):
+        mock_table = MagicMock()
+        mock_table.query_entities.return_value = [
+            {"RowKey": "1.2.3.4"},
+            {"RowKey": "5.6.7.8"},
+        ]
+        mock_get_client.return_value = mock_table
+
+        assert storage.count_abuse_reports(days=7) == 2
+
+    @patch("storage._get_table")
+    def test_returns_zero_when_none(self, mock_get_client):
+        mock_table = MagicMock()
+        mock_table.query_entities.return_value = []
+        mock_get_client.return_value = mock_table
+
+        assert storage.count_abuse_reports(days=7) == 0
+
+    @patch("storage._get_table")
+    def test_uses_sent_at_filter(self, mock_get_client):
+        mock_table = MagicMock()
+        mock_table.query_entities.return_value = []
+        mock_get_client.return_value = mock_table
+
+        storage.count_abuse_reports(days=7)
+        query_filter = mock_table.query_entities.call_args[0][0]
+        assert "sent_at ge datetime'" in query_filter

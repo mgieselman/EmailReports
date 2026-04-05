@@ -1,10 +1,19 @@
 {% extends "base.html" %}
-{% from "macros.html" import th, td, row_bg, section_header, bold, colored, mono, status_badge, subtle %}
+{% from "macros.html" import th, td, row_bg, section_header, bold, colored, mono, status_badge, subtle, trend_indicator, truncation_note %}
 
 {% block subtitle %}
 Period: <strong style='color:#ffffff'>Last {{ days }} days</strong> &nbsp;&bull;&nbsp;
 Reports: <strong style='color:#ffffff'>{{ total_reports }}</strong> &nbsp;&bull;&nbsp;
 Attachments: <strong style='color:#ffffff'>{{ total_size }}</strong>
+{% if abuse_reports_sent %}
+<br>Abuse Reports Sent: <strong style='color:#ef6c00'>{{ abuse_reports_sent }}</strong>
+{% endif %}
+{% if dmarc_pass_delta is not none or tls_pass_delta is not none %}
+<br>
+{% if dmarc_pass_delta is not none %}DMARC Pass Rate vs prev period: {{ trend_indicator(dmarc_pass_delta) }}{% endif %}
+{% if dmarc_pass_delta is not none and tls_pass_delta is not none %}&nbsp;&bull;&nbsp;{% endif %}
+{% if tls_pass_delta is not none %}TLS Pass Rate vs prev period: {{ trend_indicator(tls_pass_delta) }}{% endif %}
+{% endif %}
 {% endblock %}
 
 {% block content %}
@@ -72,12 +81,13 @@ Attachments: <strong style='color:#ffffff'>{{ total_size }}</strong>
   {{ section_header("DMARC Failure Details") }}
   <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
     <tr>
-      {% for h in ["Source IP", "Count", "Disposition", "DKIM", "SPF", "Header From"] %}
+      {% for h in ["Org", "Source IP", "Count", "Disposition", "DKIM", "SPF", "From"] %}
       {{ th(h) }}
       {% endfor %}
     </tr>
     {% for f in dmarc_failures %}
     <tr style="background:{{ row_bg(loop.index0) }}">
+      {{ td(subtle(f.org_name or "—")) }}
       {{ td(mono(f.source_ip)) }}
       {{ td(bold("{:,}".format(f.count))) }}
       {{ td(f.disposition|upper) }}
@@ -87,6 +97,7 @@ Attachments: <strong style='color:#ffffff'>{{ total_size }}</strong>
     </tr>
     {% endfor %}
   </table>
+  {{ truncation_note(dmarc_failures|length, dmarc_failures_total) }}
 </div>
 {% endif %}
 
@@ -95,7 +106,7 @@ Attachments: <strong style='color:#ffffff'>{{ total_size }}</strong>
   {{ section_header("TLS-RPT Failure Details") }}
   <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
     <tr>
-      {% for h in ["Result Type", "MX Host", "Failed Sessions", "Reason"] %}
+      {% for h in ["Result Type", "MX Host", "Failed Sessions"] %}
       {{ th(h) }}
       {% endfor %}
     </tr>
@@ -104,10 +115,10 @@ Attachments: <strong style='color:#ffffff'>{{ total_size }}</strong>
       {{ td(status_badge(f.result_type, "successful")) }}
       {{ td(mono(f.receiving_mx_hostname)) }}
       {{ td(colored("{:,}".format(f.failed_session_count), "#ef5350")) }}
-      {{ td(subtle(f.failure_reason_code or "—")) }}
     </tr>
     {% endfor %}
   </table>
+  {{ truncation_note(tls_failures|length, tls_failures_total) }}
 </div>
 {% endif %}
 {% endblock %}

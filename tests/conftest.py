@@ -45,6 +45,7 @@ def _env_defaults(monkeypatch):
         "SUMMARY_ENABLED": "false",
         "SUMMARY_SCHEDULE_CRON": "0 0 9 * * 1",
         "SUMMARY_DAYS": "7",
+        "ABUSE_REPORTING_ENABLED": "false",
         "AzureWebJobsStorage": "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=dGVzdA==",
     }
     for k, v in defaults.items():

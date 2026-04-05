@@ -10,7 +10,7 @@ Period: <strong style='color:#ffffff'>{{ report.date_begin.strftime('%Y-%m-%d') 
 {% block content %}
 <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
   <tr>
-    {% for h in ["Domain", "Policy", "Result", "Sending MTA", "MX Host", "Failed", "Reason"] %}
+    {% for h in ["Domain", "Policy", "Result", "Sending MTA", "MX Host", "RX IP", "Failed"] %}
     {{ th(h) }}
     {% endfor %}
   </tr>
@@ -21,8 +21,8 @@ Period: <strong style='color:#ffffff'>{{ report.date_begin.strftime('%Y-%m-%d') 
     {{ td(status_badge(row.result, pass_value="successful")) }}
     {{ td(mono(row.sending_mta) if row.sending_mta != "—" else subtle("—")) }}
     {{ td(mono(row.mx_host) if row.mx_host != "—" else subtle("—")) }}
+    {{ td(mono(row.receiving_ip) if row.receiving_ip != "—" else subtle("—")) }}
     {{ td(bold(row.failed)) }}
-    {{ td(subtle(row.reason)) }}
   </tr>
   {% endfor %}
 </table>

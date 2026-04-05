@@ -44,6 +44,10 @@ class DmarcReport:
     domain: str
     policy: DmarcDisposition
     records: list[DmarcRecord] = field(default_factory=list)
+    adkim: str = "r"
+    aspf: str = "r"
+    sp: DmarcDisposition = DmarcDisposition.NONE
+    pct: int = 100
 
     @property
     def total_messages(self) -> int:
@@ -52,6 +56,14 @@ class DmarcReport:
     @property
     def failing_records(self) -> list[DmarcRecord]:
         return [r for r in self.records if r.dkim_result == DmarcResult.FAIL and r.spf_result == DmarcResult.FAIL]
+
+    @property
+    def dkim_only_fail_records(self) -> list[DmarcRecord]:
+        return [r for r in self.records if r.dkim_result == DmarcResult.FAIL and r.spf_result == DmarcResult.PASS]
+
+    @property
+    def spf_only_fail_records(self) -> list[DmarcRecord]:
+        return [r for r in self.records if r.spf_result == DmarcResult.FAIL and r.dkim_result == DmarcResult.PASS]
 
 
 # ---------------------------------------------------------------------------
@@ -64,6 +76,7 @@ class TlsFailureDetail:
     result_type: str
     sending_mta_ip: str = ""
     receiving_mx_hostname: str = ""
+    receiving_ip: str = ""
     failed_session_count: int = 0
     failure_reason_code: str = ""
 
@@ -113,6 +126,22 @@ class ReportRecord:
     received_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     dmarc_failure_details_json: str = ""
     tls_failure_details_json: str = ""
+
+
+# ---------------------------------------------------------------------------
+# Abuse reporting
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class AbuseReportRecord:
+    """Tracks a sent abuse report for deduplication."""
+
+    source_ip: str
+    abuse_email: str
+    domain: str
+    report_count: int = 1
+    sent_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 # ---------------------------------------------------------------------------

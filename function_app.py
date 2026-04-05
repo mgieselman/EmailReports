@@ -10,6 +10,7 @@ from typing import Any
 
 import azure.functions as func
 
+import abuse
 import alert
 import delivery
 import dmarc_parser
@@ -71,12 +72,22 @@ def _run() -> None:
         logger.info("Mailbox %s: %d unread messages", mailbox, len(messages))
 
         alerts: list[AlertSummary] = []
+        abuse_candidates: list[tuple[DmarcReport, str, str]] | None = [] if abuse.is_abuse_reporting_enabled() else None
         errors = 0
 
         for msg in messages:
             try:
                 alerts.extend(
-                    _process_message(msg, graph, mailbox, dmarc_alias, tlsrpt_alias, delete_after_days, move_to_folder)
+                    _process_message(
+                        msg,
+                        graph,
+                        mailbox,
+                        dmarc_alias,
+                        tlsrpt_alias,
+                        delete_after_days,
+                        move_to_folder,
+                        abuse_candidates,
+                    )
                 )
             except Exception:
                 errors += 1
@@ -90,6 +101,14 @@ def _run() -> None:
                     delivery.send_email_alert(a, graph)
             except Exception:
                 logger.exception("Failed to deliver alert: %s", a.title)
+
+        # Abuse reporting (opt-in, best-effort).
+        if abuse_candidates:
+            for report, att_name, att_b64 in abuse_candidates:
+                try:
+                    abuse.send_abuse_reports(report, att_name, att_b64, graph)
+                except Exception:
+                    logger.exception("Abuse reporting failed for report %s", report.report_id)
 
         if delete_after_days > 0:
             cleanup_folder = move_to_folder or mail_folder
@@ -109,6 +128,7 @@ def _process_message(
     tlsrpt_alias: str,
     delete_after_days: int,
     move_to_folder: str,
+    abuse_candidates: list[tuple[DmarcReport, str, str]] | None = None,
 ) -> list[AlertSummary]:
     """Route, parse, and handle lifecycle for a single message."""
     msg_id = msg["id"]
@@ -124,7 +144,13 @@ def _process_message(
     new_alerts: list[AlertSummary] = []
     if dmarc_alias and dmarc_alias in to_addresses:
         new_alerts.extend(
-            _parse_attachments(attachments, subject, dmarc_parser.parse_attachment, alert.build_dmarc_alert)
+            _parse_attachments(
+                attachments,
+                subject,
+                dmarc_parser.parse_attachment,
+                alert.build_dmarc_alert,
+                abuse_candidates=abuse_candidates,
+            )
         )
     elif tlsrpt_alias and tlsrpt_alias in to_addresses:
         new_alerts.extend(
@@ -133,7 +159,13 @@ def _process_message(
     else:
         logger.debug("No alias match for '%s', trying both parsers", subject)
         new_alerts.extend(
-            _parse_attachments(attachments, subject, dmarc_parser.parse_attachment, alert.build_dmarc_alert)
+            _parse_attachments(
+                attachments,
+                subject,
+                dmarc_parser.parse_attachment,
+                alert.build_dmarc_alert,
+                abuse_candidates=abuse_candidates,
+            )
         )
         new_alerts.extend(
             _parse_attachments(attachments, subject, tlsrpt_parser.parse_attachment, alert.build_tlsrpt_alert)
@@ -176,7 +208,14 @@ def send_weekly_summary(timer: func.TimerRequest) -> None:
             logger.info("No report records found for the last %d days; skipping summary", summary_days)
             return
 
-        summary = alert.build_weekly_summary(records, days=summary_days)
+        prev_records = storage.query_period_range(summary_days * 2, summary_days)
+        abuse_reports_sent = storage.count_abuse_reports(days=summary_days)
+        summary = alert.build_weekly_summary(
+            records,
+            days=summary_days,
+            prev_records=prev_records if prev_records else None,
+            abuse_reports_sent=abuse_reports_sent,
+        )
 
         with GraphClient() as graph:
             delivery.send_teams_alert(summary)
@@ -240,6 +279,8 @@ def _parse_attachments(
     subject: str,
     parser: Callable[[str, str], Any],
     alert_builder: Callable[[Any], AlertSummary],
+    *,
+    abuse_candidates: list[tuple[DmarcReport, str, str]] | None = None,
 ) -> list[AlertSummary]:
     """Parse attachments using the given parser and build alerts. Saves records to storage."""
     alerts: list[AlertSummary] = []
@@ -261,6 +302,8 @@ def _parse_attachments(
             alert_summary.attachments.append(models.AlertAttachment(name=name, content_b64=content_b64))
             alerts.append(alert_summary)
             _save_report(report, content_b64)
+            if abuse_candidates is not None and isinstance(report, DmarcReport):
+                abuse_candidates.append((report, name, content_b64))
     return alerts
 
 
@@ -280,6 +323,7 @@ def _save_report(report: DmarcReport | TlsRptReport, content_b64: str) -> None:
                     "dkim_result": r.dkim_result.value,
                     "spf_result": r.spf_result.value,
                     "header_from": r.header_from,
+                    "org_name": report.org_name,
                 }
                 for r in report.failing_records[:50]
             ]
@@ -301,6 +345,7 @@ def _save_report(report: DmarcReport | TlsRptReport, content_b64: str) -> None:
                     "result_type": fd.result_type,
                     "sending_mta_ip": fd.sending_mta_ip,
                     "receiving_mx_hostname": fd.receiving_mx_hostname,
+                    "receiving_ip": fd.receiving_ip,
                     "failed_session_count": fd.failed_session_count,
                     "failure_reason_code": fd.failure_reason_code,
                 }

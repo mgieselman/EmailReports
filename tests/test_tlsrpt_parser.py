@@ -103,6 +103,7 @@ class TestParseJsonHyphenated:
         assert fd.result_type == "certificate-expired"
         assert fd.sending_mta_ip == "209.85.220.41"
         assert fd.receiving_mx_hostname == "mail.gieselman.com"
+        assert fd.receiving_ip == "192.0.2.1"
         assert fd.failed_session_count == 2
         assert fd.failure_reason_code == "Certificate has expired"
 

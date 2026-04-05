@@ -128,6 +128,19 @@ class TestParseXmlContent:
         assert len(report.failing_records) == 1
         assert report.failing_records[0].source_ip == "185.99.99.1"
 
+    def test_alignment_modes(self, dmarc_b64_xml):
+        report = dmarc_parser.parse_attachment("r.xml", dmarc_b64_xml)
+        assert report.adkim == "s"
+        assert report.aspf == "s"
+
+    def test_subdomain_policy(self, dmarc_b64_xml):
+        report = dmarc_parser.parse_attachment("r.xml", dmarc_b64_xml)
+        assert report.sp == DmarcDisposition.REJECT
+
+    def test_pct(self, dmarc_b64_xml):
+        report = dmarc_parser.parse_attachment("r.xml", dmarc_b64_xml)
+        assert report.pct == 100
+
 
 class TestParseMinimalXml:
     def test_no_records(self, dmarc_minimal_xml_bytes):
@@ -138,6 +151,15 @@ class TestParseMinimalXml:
         assert report.records == []
         assert report.total_messages == 0
         assert report.policy == DmarcDisposition.NONE
+
+    def test_defaults_for_missing_alignment_fields(self, dmarc_minimal_xml_bytes):
+        b64 = base64.b64encode(dmarc_minimal_xml_bytes).decode()
+        report = dmarc_parser.parse_attachment("r.xml", b64)
+        assert report.adkim == "r"
+        assert report.aspf == "r"
+        # sp defaults to p when absent (RFC 7489)
+        assert report.sp == DmarcDisposition.NONE
+        assert report.pct == 100
 
 
 class TestParseMultiAuthXml:

@@ -22,16 +22,18 @@ from models import (
 # ---------------------------------------------------------------------------
 
 
-def _dmarc_report(records=None, policy=DmarcDisposition.REJECT):
-    return DmarcReport(
-        org_name="google.com",
-        report_id="test-1",
-        date_begin=datetime(2024, 3, 15, tzinfo=UTC),
-        date_end=datetime(2024, 3, 16, tzinfo=UTC),
-        domain="gieselman.com",
-        policy=policy,
-        records=records or [],
-    )
+def _dmarc_report(records=None, policy=DmarcDisposition.REJECT, **kwargs):
+    defaults = {
+        "org_name": "google.com",
+        "report_id": "test-1",
+        "date_begin": datetime(2024, 3, 15, tzinfo=UTC),
+        "date_end": datetime(2024, 3, 16, tzinfo=UTC),
+        "domain": "gieselman.com",
+        "policy": policy,
+        "records": records or [],
+    }
+    defaults.update(kwargs)
+    return DmarcReport(**defaults)
 
 
 def _dmarc_record(count=1, dkim="pass", spf="pass", source_ip="1.2.3.4"):
@@ -218,6 +220,74 @@ class TestDmarcHtmlContent:
         result = alert.build_dmarc_alert(_dmarc_report(records))
         assert result.title == "DMARC Report: gieselman.com (google.com)"
 
+    def test_contains_alignment_strict(self):
+        records = [_dmarc_record(count=10)]
+        result = alert.build_dmarc_alert(_dmarc_report(records, adkim="s", aspf="s"))
+        assert "Strict" in result.body_html
+        assert "DKIM Alignment" in result.body_html
+        assert "SPF Alignment" in result.body_html
+
+    def test_contains_alignment_relaxed(self):
+        records = [_dmarc_record(count=10)]
+        result = alert.build_dmarc_alert(_dmarc_report(records, adkim="r", aspf="r"))
+        assert "Relaxed" in result.body_html
+
+    def test_subdomain_policy_shown_when_different(self):
+        records = [_dmarc_record(count=10)]
+        result = alert.build_dmarc_alert(
+            _dmarc_report(records, policy=DmarcDisposition.REJECT, sp=DmarcDisposition.QUARANTINE)
+        )
+        assert "Subdomain Policy" in result.body_html
+        assert "QUARANTINE" in result.body_html
+
+    def test_subdomain_policy_hidden_when_same(self):
+        records = [_dmarc_record(count=10)]
+        result = alert.build_dmarc_alert(
+            _dmarc_report(records, policy=DmarcDisposition.REJECT, sp=DmarcDisposition.REJECT)
+        )
+        assert "Subdomain Policy" not in result.body_html
+
+    def test_sampling_shown_when_below_100(self):
+        records = [_dmarc_record(count=10)]
+        result = alert.build_dmarc_alert(_dmarc_report(records, pct=50))
+        assert "Sampling" in result.body_html
+        assert "50%" in result.body_html
+
+    def test_sampling_hidden_when_100(self):
+        records = [_dmarc_record(count=10)]
+        result = alert.build_dmarc_alert(_dmarc_report(records, pct=100))
+        assert "Sampling" not in result.body_html
+
+    def test_contains_dkim_spf_domain_columns(self):
+        records = [_dmarc_record(count=10)]
+        result = alert.build_dmarc_alert(_dmarc_report(records))
+        assert "DKIM Domain" in result.body_html
+        assert "SPF Domain" in result.body_html
+
+    def test_partial_failures_shown(self):
+        records = [
+            _dmarc_record(count=10, dkim="pass", spf="pass"),
+            _dmarc_record(count=3, dkim="fail", spf="pass", source_ip="2.3.4.5"),
+            _dmarc_record(count=2, dkim="pass", spf="fail", source_ip="3.4.5.6"),
+        ]
+        result = alert.build_dmarc_alert(_dmarc_report(records))
+        assert "Partial auth failures" in result.body_html
+        assert "DKIM-only" in result.body_html
+        assert "SPF-only" in result.body_html
+
+    def test_partial_failures_hidden_when_none(self):
+        records = [_dmarc_record(count=10, dkim="pass", spf="pass")]
+        result = alert.build_dmarc_alert(_dmarc_report(records))
+        assert "Partial auth failures" not in result.body_html
+
+    def test_partial_failures_in_markdown(self):
+        records = [
+            _dmarc_record(count=10, dkim="pass", spf="pass"),
+            _dmarc_record(count=3, dkim="fail", spf="pass", source_ip="2.3.4.5"),
+        ]
+        result = alert.build_dmarc_alert(_dmarc_report(records))
+        assert "**DKIM-only failures:** 3" in result.body_markdown
+
 
 # ---------------------------------------------------------------------------
 # TLS-RPT HTML content
@@ -283,11 +353,27 @@ class TestTlsRptHtmlContent:
 class TestMarkdownOutput:
     def test_dmarc_markdown_contains_key_fields(self):
         records = [_dmarc_record(count=10, dkim="fail", spf="fail")]
-        result = alert.build_dmarc_alert(_dmarc_report(records))
+        result = alert.build_dmarc_alert(_dmarc_report(records, adkim="s", aspf="r"))
         assert "**Org:**" in result.body_markdown
         assert "**Domain:**" in result.body_markdown
         assert "**Total messages:**" in result.body_markdown
         assert "Source IP" in result.body_markdown
+        assert "**DKIM Alignment:** strict" in result.body_markdown
+        assert "**SPF Alignment:** relaxed" in result.body_markdown
+        assert "DKIM Domain" in result.body_markdown
+        assert "SPF Domain" in result.body_markdown
+
+    def test_dmarc_markdown_subdomain_policy_when_different(self):
+        records = [_dmarc_record(count=10)]
+        result = alert.build_dmarc_alert(
+            _dmarc_report(records, policy=DmarcDisposition.REJECT, sp=DmarcDisposition.NONE)
+        )
+        assert "**Subdomain Policy:** none" in result.body_markdown
+
+    def test_dmarc_markdown_sampling_when_below_100(self):
+        records = [_dmarc_record(count=10)]
+        result = alert.build_dmarc_alert(_dmarc_report(records, pct=25))
+        assert "**Sampling:** 25%" in result.body_markdown
 
     def test_tlsrpt_markdown_contains_key_fields(self):
         policies = [
@@ -405,9 +491,11 @@ class TestAggregationHelpers:
             "header_from": "x.com",
         }
         dmarc = [_report_record("dmarc", "a.com", dmarc_failure_details_json=json.dumps([fd]))]
-        result = alert._aggregate_dmarc_failures(dmarc)
+        result, total = alert._aggregate_dmarc_failures(dmarc)
         assert len(result) == 1
+        assert total == 1
         assert result[0]["source_ip"] == "1.1.1.1"
+        assert result[0]["org_name"] == "a.com"
 
     def test_aggregate_dmarc_failures_merges_same_key(self):
         import json
@@ -425,9 +513,28 @@ class TestAggregationHelpers:
             _report_record("dmarc", "a.com", dmarc_failure_details_json=json.dumps([fd1])),
             _report_record("dmarc", "b.com", dmarc_failure_details_json=json.dumps([fd2])),
         ]
-        result = alert._aggregate_dmarc_failures(dmarc)
+        result, total = alert._aggregate_dmarc_failures(dmarc)
         assert len(result) == 1
+        assert total == 1
         assert result[0]["count"] == 5
+        assert "a.com" in result[0]["org_name"]
+        assert "b.com" in result[0]["org_name"]
+
+    def test_aggregate_dmarc_failures_with_org_name_in_detail(self):
+        import json
+
+        fd = {
+            "source_ip": "1.1.1.1",
+            "count": 2,
+            "disposition": "none",
+            "dkim_result": "fail",
+            "spf_result": "fail",
+            "header_from": "x.com",
+            "org_name": "reporter.com",
+        }
+        dmarc = [_report_record("dmarc", "a.com", dmarc_failure_details_json=json.dumps([fd]))]
+        result, _ = alert._aggregate_dmarc_failures(dmarc)
+        assert result[0]["org_name"] == "reporter.com"
 
     def test_aggregate_tls_failures(self):
         import json
@@ -440,8 +547,9 @@ class TestAggregationHelpers:
             "failure_reason_code": "",
         }
         tlsrpt = [_report_record("tlsrpt", "a.com", tls_failure_details_json=json.dumps([fd]))]
-        result = alert._aggregate_tls_failures(tlsrpt)
+        result, total = alert._aggregate_tls_failures(tlsrpt)
         assert len(result) == 1
+        assert total == 1
         assert result[0]["receiving_mx_hostname"] == "mx.test.com"
 
     def test_aggregate_tls_failures_merges_same_key(self):
@@ -459,8 +567,9 @@ class TestAggregationHelpers:
             _report_record("tlsrpt", "a.com", tls_failure_details_json=json.dumps([fd1])),
             _report_record("tlsrpt", "b.com", tls_failure_details_json=json.dumps([fd2])),
         ]
-        result = alert._aggregate_tls_failures(tlsrpt)
+        result, total = alert._aggregate_tls_failures(tlsrpt)
         assert len(result) == 1
+        assert total == 1
         assert result[0]["failed_session_count"] == 5
 
     def test_build_sender_details(self):
@@ -569,6 +678,7 @@ class TestWeeklySummary:
         assert "DMARC Failure Details" in result.body_html
         assert "5.6.7.8" in result.body_html
         assert "spoofed.com" in result.body_html
+        assert "attacker.com" in result.body_html  # org column
         assert "DMARC Failure Details" in result.body_markdown
 
     def test_tls_failure_details_in_html(self):
@@ -641,6 +751,109 @@ class TestWeeklySummary:
         result = alert.build_weekly_summary(records, days=7)
         assert "TLS-RPT Failure Details" in result.body_html
         assert "mx.test.com" in result.body_html
+
+
+class TestTlsRptReceivingIp:
+    def test_receiving_ip_in_html(self):
+        fd = TlsFailureDetail(
+            result_type="certificate-expired",
+            receiving_mx_hostname="mail.example.com",
+            receiving_ip="192.0.2.1",
+            failed_session_count=2,
+        )
+        policies = [
+            TlsPolicy(
+                policy_type="sts",
+                policy_domain="example.com",
+                successful_session_count=100,
+                failed_session_count=2,
+                failure_details=[fd],
+            )
+        ]
+        result = alert.build_tlsrpt_alert(_tls_report(policies))
+        assert "RX IP" in result.body_html
+        assert "192.0.2.1" in result.body_html
+
+
+class TestDmarcTruncation:
+    def test_truncation_note_shown(self):
+        records = [_dmarc_record(count=1, source_ip=f"1.2.3.{i}") for i in range(60)]
+        result = alert.build_dmarc_alert(_dmarc_report(records))
+        assert "Showing 50 of 60 records" in result.body_html
+
+    def test_no_truncation_note(self):
+        records = [_dmarc_record(count=1, source_ip=f"1.2.3.{i}") for i in range(10)]
+        result = alert.build_dmarc_alert(_dmarc_report(records))
+        assert "Showing" not in result.body_html
+
+
+class TestWeeklySummaryTrends:
+    def test_trend_deltas_shown(self):
+        records = [_report_record("dmarc", "google.com", 100, 95, 5)]
+        prev = [_report_record("dmarc", "google.com", 100, 90, 10)]
+        result = alert.build_weekly_summary(records, days=7, prev_records=prev)
+        # Current 95%, prev 90% => delta +5.0%
+        assert "\u25b2" in result.body_html  # up arrow
+        assert "+5.0%" in result.body_html
+
+    def test_trend_negative_delta(self):
+        records = [_report_record("dmarc", "google.com", 100, 90, 10)]
+        prev = [_report_record("dmarc", "google.com", 100, 95, 5)]
+        result = alert.build_weekly_summary(records, days=7, prev_records=prev)
+        assert "\u25bc" in result.body_html  # down arrow
+        assert "-5.0%" in result.body_html
+
+    def test_no_trend_without_prev_records(self):
+        records = [_report_record("dmarc", "google.com", 100, 95, 5)]
+        result = alert.build_weekly_summary(records, days=7)
+        assert "vs prev period" not in result.body_html
+
+    def test_no_trend_with_empty_prev(self):
+        records = [_report_record("dmarc", "google.com", 100, 95, 5)]
+        result = alert.build_weekly_summary(records, days=7, prev_records=None)
+        assert "vs prev period" not in result.body_html
+
+    def test_tls_trend_delta(self):
+        records = [_report_record("tlsrpt", "google.com", 100, 100, 0)]
+        prev = [_report_record("tlsrpt", "google.com", 100, 90, 10)]
+        result = alert.build_weekly_summary(records, days=7, prev_records=prev)
+        assert "TLS Pass Rate vs prev period" in result.body_html
+        assert "+10.0%" in result.body_html
+
+    def test_no_delta_when_prev_has_no_matching_type(self):
+        records = [_report_record("dmarc", "google.com", 100, 95, 5)]
+        prev = [_report_record("tlsrpt", "google.com", 100, 90, 10)]
+        result = alert.build_weekly_summary(records, days=7, prev_records=prev)
+        # No prev DMARC data => no DMARC delta
+        assert "DMARC Pass Rate vs prev period" not in result.body_html
+
+
+class TestWeeklySummaryAbuseCount:
+    def test_abuse_count_in_markdown(self):
+        records = [_report_record("dmarc", "google.com", 100, 95, 5)]
+        result = alert.build_weekly_summary(records, days=7, abuse_reports_sent=3)
+        assert "Abuse reports sent:** 3" in result.body_markdown
+
+    def test_abuse_count_in_html(self):
+        records = [_report_record("dmarc", "google.com", 100, 95, 5)]
+        result = alert.build_weekly_summary(records, days=7, abuse_reports_sent=5)
+        assert "Abuse Reports Sent" in result.body_html
+        assert "5" in result.body_html
+
+    def test_abuse_count_zero_not_shown_markdown(self):
+        records = [_report_record("dmarc", "google.com", 100, 95, 5)]
+        result = alert.build_weekly_summary(records, days=7, abuse_reports_sent=0)
+        assert "Abuse reports sent" not in result.body_markdown
+
+    def test_abuse_count_zero_not_shown_html(self):
+        records = [_report_record("dmarc", "google.com", 100, 95, 5)]
+        result = alert.build_weekly_summary(records, days=7, abuse_reports_sent=0)
+        assert "Abuse Reports Sent" not in result.body_html
+
+    def test_abuse_count_default_zero(self):
+        records = [_report_record("dmarc", "google.com", 100, 95, 5)]
+        result = alert.build_weekly_summary(records, days=7)
+        assert "Abuse reports sent" not in result.body_markdown
 
 
 class TestFormatBytes:

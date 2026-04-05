@@ -601,6 +601,7 @@ class TestWeeklySummary:
         mock_storage.query_period.return_value = [
             ReportRecord(report_type="dmarc", report_id="1", org_name="google.com", domain="test.com")
         ]
+        mock_storage.query_period_range.return_value = []
 
         mock_client = MagicMock()
         MockGraphClient.return_value.__enter__ = MagicMock(return_value=mock_client)
@@ -612,6 +613,7 @@ class TestWeeklySummary:
         send_weekly_summary(timer)
 
         mock_storage.query_period.assert_called_once_with(days=7)
+        mock_storage.query_period_range.assert_called_once_with(14, 7)
         mock_delivery.send_teams_alert.assert_called()
         mock_delivery.send_email_alert.assert_called()
 
@@ -711,6 +713,7 @@ class TestSaveReport:
         assert details[0]["count"] == 3
         assert details[0]["dkim_result"] == "fail"
         assert details[0]["spf_result"] == "fail"
+        assert details[0]["org_name"] == "google.com"
 
     @patch("function_app.storage")
     def test_saves_tlsrpt_report(self, mock_storage):
@@ -795,3 +798,159 @@ class TestSaveReport:
         from function_app import _save_report
 
         _save_report(report, base64.b64encode(b"data").decode())  # should not raise
+
+
+# ---------------------------------------------------------------------------
+# Abuse reporting integration
+# ---------------------------------------------------------------------------
+
+
+class TestAbuseReportingIntegration:
+    def _make_message(self, msg_id, to_address, has_attachments=True):
+        return {
+            "id": msg_id,
+            "subject": f"Report {msg_id}",
+            "hasAttachments": has_attachments,
+            "toRecipients": [{"emailAddress": {"address": to_address}}],
+        }
+
+    @staticmethod
+    def _setup_graph_mock(MockGraphClient):
+        mock_client = MagicMock()
+        MockGraphClient.return_value.__enter__ = MagicMock(return_value=mock_client)
+        MockGraphClient.return_value.__exit__ = MagicMock(return_value=False)
+        return mock_client
+
+    @patch("function_app.abuse")
+    @patch("function_app.storage")
+    @patch("function_app.delivery")
+    @patch("function_app.GraphClient")
+    def test_abuse_reports_sent_when_enabled(
+        self, MockGraphClient, mock_delivery, mock_storage, mock_abuse, monkeypatch, dmarc_b64_gz
+    ):
+        monkeypatch.setenv("ABUSE_REPORTING_ENABLED", "true")
+        mock_storage.report_exists.return_value = False
+        mock_abuse.is_abuse_reporting_enabled.return_value = True
+        mock_abuse.send_abuse_reports.return_value = 1
+
+        mock_client = self._setup_graph_mock(MockGraphClient)
+        msg = self._make_message("1", "dmarc-reports@gieselman.com")
+        mock_client.list_unread_messages.return_value = [msg]
+        mock_client.get_attachments.return_value = [{"name": "r.xml.gz", "contentBytes": dmarc_b64_gz}]
+
+        from function_app import process_email_reports
+
+        timer = MagicMock()
+        timer.past_due = False
+        process_email_reports(timer)
+
+        mock_abuse.send_abuse_reports.assert_called_once()
+
+    @patch("function_app.abuse")
+    @patch("function_app.storage")
+    @patch("function_app.delivery")
+    @patch("function_app.GraphClient")
+    def test_abuse_reports_skipped_when_disabled(
+        self, MockGraphClient, mock_delivery, mock_storage, mock_abuse, dmarc_b64_gz
+    ):
+        mock_storage.report_exists.return_value = False
+        mock_abuse.is_abuse_reporting_enabled.return_value = False
+
+        mock_client = self._setup_graph_mock(MockGraphClient)
+        msg = self._make_message("1", "dmarc-reports@gieselman.com")
+        mock_client.list_unread_messages.return_value = [msg]
+        mock_client.get_attachments.return_value = [{"name": "r.xml.gz", "contentBytes": dmarc_b64_gz}]
+
+        from function_app import process_email_reports
+
+        timer = MagicMock()
+        timer.past_due = False
+        process_email_reports(timer)
+
+        mock_abuse.send_abuse_reports.assert_not_called()
+
+    @patch("function_app.abuse")
+    @patch("function_app.storage")
+    @patch("function_app.delivery")
+    @patch("function_app.GraphClient")
+    def test_abuse_report_failure_does_not_stop_run(
+        self, MockGraphClient, mock_delivery, mock_storage, mock_abuse, dmarc_b64_gz
+    ):
+        mock_storage.report_exists.return_value = False
+        mock_abuse.is_abuse_reporting_enabled.return_value = True
+        mock_abuse.send_abuse_reports.side_effect = Exception("RDAP down")
+
+        mock_client = self._setup_graph_mock(MockGraphClient)
+        msg = self._make_message("1", "dmarc-reports@gieselman.com")
+        mock_client.list_unread_messages.return_value = [msg]
+        mock_client.get_attachments.return_value = [{"name": "r.xml.gz", "contentBytes": dmarc_b64_gz}]
+
+        from function_app import process_email_reports
+
+        timer = MagicMock()
+        timer.past_due = False
+        process_email_reports(timer)  # should not raise
+
+    @patch("function_app.storage")
+    def test_parse_attachments_collects_abuse_candidates(self, mock_storage, dmarc_b64_gz):
+        import alert as alert_mod
+
+        mock_storage.report_exists.return_value = False
+
+        from function_app import _parse_attachments
+
+        candidates: list = []
+        attachments = [{"name": "report.xml.gz", "contentBytes": dmarc_b64_gz}]
+        _parse_attachments(
+            attachments,
+            "test",
+            dmarc_parser.parse_attachment,
+            alert_mod.build_dmarc_alert,
+            abuse_candidates=candidates,
+        )
+        assert len(candidates) == 1
+
+    @patch("function_app.storage")
+    def test_parse_attachments_no_candidates_for_tlsrpt(self, mock_storage, tlsrpt_b64_gz):
+        import alert as alert_mod
+
+        mock_storage.report_exists.return_value = False
+
+        from function_app import _parse_attachments
+
+        candidates: list = []
+        attachments = [{"name": "report.json.gz", "contentBytes": tlsrpt_b64_gz}]
+        _parse_attachments(
+            attachments,
+            "test",
+            tlsrpt_parser.parse_attachment,
+            alert_mod.build_tlsrpt_alert,
+            abuse_candidates=candidates,
+        )
+        assert len(candidates) == 0
+
+    @patch("function_app.storage")
+    @patch("function_app.delivery")
+    @patch("function_app.GraphClient")
+    def test_weekly_summary_includes_abuse_count(self, MockGraphClient, mock_delivery, mock_storage, monkeypatch):
+        monkeypatch.setenv("SUMMARY_ENABLED", "true")
+        monkeypatch.setenv("SUMMARY_DAYS", "7")
+
+        from models import ReportRecord
+
+        mock_storage.query_period.return_value = [
+            ReportRecord(report_type="dmarc", report_id="1", org_name="google.com", domain="test.com")
+        ]
+        mock_storage.query_period_range.return_value = []
+        mock_storage.count_abuse_reports.return_value = 3
+
+        mock_client = MagicMock()
+        MockGraphClient.return_value.__enter__ = MagicMock(return_value=mock_client)
+        MockGraphClient.return_value.__exit__ = MagicMock(return_value=False)
+
+        from function_app import send_weekly_summary
+
+        timer = MagicMock()
+        send_weekly_summary(timer)
+
+        mock_storage.count_abuse_reports.assert_called_once_with(days=7)

@@ -35,3 +35,17 @@
 {%- endmacro %}
 
 {% macro row_bg(index) %}{{ '#1c1c1c' if index % 2 == 0 else '#222222' }}{% endmacro %}
+
+{% macro truncation_note(shown, total) %}
+{%- if shown < total -%}
+<div style="font-size:11px;color:#999999;padding:6px 12px">Showing {{ shown }} of {{ "{:,}".format(total) }} records</div>
+{%- endif -%}
+{%- endmacro %}
+
+{% macro trend_indicator(delta) %}
+{%- if delta is not none -%}
+{%- set arrow = "▲" if delta > 0 else "▼" if delta < 0 else "▬" -%}
+{%- set color = "#4caf50" if delta > 0 else "#ef5350" if delta < 0 else "#999999" -%}
+<span style="font-size:11px;font-weight:600;color:{{ color }};margin-left:4px">{{ arrow }} {{ "%+.1f"|format(delta) }}%</span>
+{%- endif -%}
+{%- endmacro %}
