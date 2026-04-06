@@ -21,6 +21,7 @@ Built for **small organizations (<200 users)** that want automated email securit
 - **Report deduplication** — skips reports already processed (idempotent reruns)
 - **Email lifecycle** — move processed messages to a folder, auto-delete after N days
 - **Dark console dashboard emails** — dark theme, monospace IPs, color-coded PASS/FAIL, high-contrast stat cards
+- **Automated abuse reporting** — sends plain-text and ARF (RFC 5965) abuse reports to hosting providers when spoofing is detected, with RDAP-based contact lookup and weekly deduplication
 
 ## How it works
 
@@ -30,6 +31,7 @@ Built for **small organizations (<200 users)** that want automated email securit
 4. Parses reports and calculates severity: **info** / **warning** / **critical**
 5. Sends alerts, tracks report data in Table Storage
 6. Sends a periodic summary email with aggregated stats
+7. Optionally sends abuse reports to hosting providers for confirmed spoofing
 
 ## Architecture
 
@@ -45,12 +47,12 @@ Built for **small organizations (<200 users)** that want automated email securit
                            │ (Python 3.12)│ Summary: configurable
                            └──────┬───────┘
                                   │
-                  ┌───────┬───────┼───────┬──────────┐
-                  ▼       ▼       ▼       ▼          ▼
-             ┌────────┐┌──────┐┌───────┐┌──────┐┌────────┐
-             │ Teams  ││Email ││Webhook││Table ││Summary │
-             │  Card  ││Alert ││(JSON) ││Store ││ Email  │
-             └────────┘└──────┘└───────┘└──────┘└────────┘
+                  ┌───────┬───────┼───────┬──────────┬──────────┐
+                  ▼       ▼       ▼       ▼          ▼          ▼
+             ┌────────┐┌──────┐┌───────┐┌──────┐┌────────┐┌────────┐
+             │ Teams  ││Email ││Webhook││Table ││Summary ││ Abuse  │
+             │  Card  ││Alert ││(JSON) ││Store ││ Email  ││Reports │
+             └────────┘└──────┘└───────┘└──────┘└────────┘└────────┘
 ```
 
 ## Quick Start
@@ -99,6 +101,7 @@ Key settings:
 | `DELETE_AFTER_DAYS` | Delete read messages after N days (`0` = immediate, `-1` = never) |
 | `SUMMARY_ENABLED` | Enable periodic summary email |
 | `SUMMARY_SCHEDULE_CRON` | Summary schedule (default: Monday 9am UTC) |
+| `ABUSE_REPORTING_ENABLED` | Auto-send abuse reports for confirmed spoofing |
 
 ## Monitoring
 
@@ -118,6 +121,8 @@ See [Monitoring Guide](docs/monitoring.md) for full details. Three layers:
 ├── attachment_util.py      # Shared decompression (gz/zip)
 ├── alert.py                # ViewModel — severity logic, data aggregation
 ├── delivery.py             # Delivery — Teams, email, generic webhook
+├── abuse.py                # Automated abuse reporting for spoofing
+├── rdap.py                 # RDAP abuse contact lookup by IP
 ├── storage.py              # Table Storage for report tracking + deduplication
 ├── models.py               # Dataclasses and enums
 ├── templates/              # Jinja2 HTML templates (View layer)
@@ -125,8 +130,10 @@ See [Monitoring Guide](docs/monitoring.md) for full details. Three layers:
 │   ├── macros.html         # Reusable macros (th/td, badges, styled text)
 │   ├── dmarc_alert.html
 │   ├── tlsrpt_alert.html
-│   └── weekly_summary.html
-├── tests/                  # 235 tests, 100% coverage
+│   ├── weekly_summary.html
+│   ├── abuse_report.html   # Plain-text abuse email
+│   └── abuse_arf_carrier.html
+├── tests/                  # 343 tests, 100% coverage
 ├── .github/workflows/      # CI (lint+test+gitleaks) + deploy
 └── docs/                   # Setup, config, and monitoring guides
 ```

@@ -18,6 +18,8 @@
 - **Transport:** `graph_client.py` — MSAL auth + Graph API, retry, timeouts
 - **Parsing:** `dmarc_parser.py`, `tlsrpt_parser.py`, `attachment_util.py`
 - **Storage:** `storage.py` — Azure Table Storage for report tracking and deduplication
+- **Abuse Reporting:** `abuse.py` — automated abuse reports to hosting providers for confirmed spoofing
+- **RDAP Lookup:** `rdap.py` — queries RDAP registries for abuse contact emails by source IP
 
 ## Conventions
 
