@@ -1,7 +1,7 @@
 """Generate sample report screenshots for documentation.
 
 Usage:
-    python generate_screenshots.py
+    python scripts/generate_screenshots.py
 
 Requires: Pillow, Google Chrome
 Output: docs/sample_dmarc.png, docs/sample_tlsrpt.png, docs/sample_weekly.png
@@ -10,9 +10,13 @@ Output: docs/sample_dmarc.png, docs/sample_tlsrpt.png, docs/sample_weekly.png
 from __future__ import annotations
 
 import subprocess
+import sys
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
+
+# Add project root to path so we can import application modules.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from PIL import Image
 
@@ -28,7 +32,7 @@ from models import (
     TlsRptReport,
 )
 
-DOCS_DIR = Path(__file__).resolve().parent / "docs"
+DOCS_DIR = Path(__file__).resolve().parent.parent / "docs"
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 VIEWPORT_WIDTH = 720
 VIEWPORT_HEIGHT = 1200  # Render tall, then auto-trim

@@ -133,6 +133,9 @@ See [Monitoring Guide](docs/monitoring.md) for full details. Three layers:
 │   ├── weekly_summary.html
 │   ├── abuse_report.html   # Plain-text abuse email
 │   └── abuse_arf_carrier.html
+├── scripts/                # Dev tools (not deployed)
+│   ├── generate_screenshots.py
+│   └── send_test_emails.py
 ├── tests/                  # 343 tests, 100% coverage
 ├── .github/workflows/      # CI (lint+test+gitleaks) + deploy
 └── docs/                   # Setup, config, and monitoring guides

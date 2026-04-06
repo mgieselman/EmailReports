@@ -1,5 +1,6 @@
 tests/
 docs/
+scripts/
 .github/
 .venv/
 *.md
@@ -7,7 +8,7 @@ pyproject.toml
 test_alert.py
 local.settings.json
 local.settings.json.example
-EmailReports.code-workspace
 .gitignore
 .gitleaksignore
+.DS_Store
 LICENSE

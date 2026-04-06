@@ -29,3 +29,12 @@ htmlcov/
 # Environment
 .env
 .claude/
+
+# macOS
+.DS_Store
+
+# IDE / workspace
+*.code-workspace
+
+# Stray files
+*.uuid.png
