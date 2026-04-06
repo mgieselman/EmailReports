@@ -28,7 +28,7 @@ SPF Alignment: <strong style='color:#ffffff'>{{ "Strict" if report.aspf == "s" e
 {% endif %}
 <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
   <tr>
-    {% for h in ["Source IP", "Count", "Disposition", "DKIM", "SPF", "DKIM Domain", "SPF Domain", "From", "Envelope From"] %}
+    {% for h in ["Source IP", "Count", "Disp", "DKIM", "SPF", "DKIM Domain", "From"] %}
     {{ th(h) }}
     {% endfor %}
   </tr>
@@ -40,9 +40,7 @@ SPF Alignment: <strong style='color:#ffffff'>{{ "Strict" if report.aspf == "s" e
     {{ td(status_badge(r.dkim_result.value)) }}
     {{ td(status_badge(r.spf_result.value)) }}
     {{ td(mono(r.dkim_domain) if r.dkim_domain else subtle("—")) }}
-    {{ td(mono(r.spf_domain) if r.spf_domain else subtle("—")) }}
     {{ td(r.header_from) }}
-    {{ td(subtle(r.envelope_from or "—")) }}
   </tr>
   {% endfor %}
 </table>

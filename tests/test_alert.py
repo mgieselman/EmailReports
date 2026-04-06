@@ -258,11 +258,10 @@ class TestDmarcHtmlContent:
         result = alert.build_dmarc_alert(_dmarc_report(records, pct=100))
         assert "Sampling" not in result.body_html
 
-    def test_contains_dkim_spf_domain_columns(self):
+    def test_contains_dkim_domain_column(self):
         records = [_dmarc_record(count=10)]
         result = alert.build_dmarc_alert(_dmarc_report(records))
         assert "DKIM Domain" in result.body_html
-        assert "SPF Domain" in result.body_html
 
     def test_partial_failures_shown(self):
         records = [
@@ -622,7 +621,7 @@ class TestWeeklySummary:
         assert "Reporting Sources" in result.body_html
         assert "google.com" in result.body_html
         assert "yahoo.com" in result.body_html
-        assert "DMARC Messages" in result.body_html
+        assert "DMARC Msgs" in result.body_html
         assert "TLS Sessions" in result.body_html
 
     def test_html_contains_policy_distribution(self):

@@ -184,7 +184,7 @@ def _build_weekly_html() -> str:
             attachment_size_bytes=2000,
         ),
     ]
-    return alert.build_weekly_summary(records, days=7).body_html
+    return alert.build_weekly_summary(records, days=7, abuse_reports_sent=2).body_html
 
 
 def main() -> None:

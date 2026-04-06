@@ -440,10 +440,10 @@ def build_weekly_summary(
         severity,
         [
             _card(str(total_reports), "Reports"),
-            _card(str(dmarc_messages), "DMARC Messages"),
-            _card(dmarc_pass_rate, "DMARC Pass Rate", "#4caf50" if dmarc_fail == 0 else "#ef6c00"),
+            _card(str(dmarc_messages), "DMARC Msgs"),
+            _card(dmarc_pass_rate, "DMARC Pass", "#4caf50" if dmarc_fail == 0 else "#ef6c00"),
             _card(str(tls_total), "TLS Sessions"),
-            _card(tls_pass_rate, "TLS Pass Rate", "#4caf50" if tls_fail == 0 else "#ef6c00"),
+            _card(tls_pass_rate, "TLS Pass", "#4caf50" if tls_fail == 0 else "#ef6c00"),
         ],
     )
     ctx.update(
