@@ -28,16 +28,9 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Create deployment package
-        run: |
-          cd ${{ github.workspace }}
-          zip -r deploy.zip . -x '.venv/*' '.git/*' 'tests/*' 'scripts/*' '__pycache__/*' '.github/*' '*.pyc' '.gitignore' 'CLAUDE.md' 'CODE_OF_CONDUCT.md' 'CONTRIBUTING.md' 'SECURITY.md' 'docs/*'
-
       - name: Deploy to Azure Functions
-        run: |
-          az functionapp deploy \
-            --resource-group rg-emailreports-prod \
-            --name func-emailreports-flex \
-            --src-path deploy.zip \
-            --type zip \
-            --clean true
+        uses: Azure/functions-action@v1
+        with:
+          app-name: func-emailreports-flex
+          package: .
+          remote-build: false
