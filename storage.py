@@ -18,11 +18,26 @@ ABUSE_TABLE_NAME = "abusereports"
 _cached_clients: dict[str, TableClient] = {}
 
 
+def _build_table_service() -> TableServiceClient:
+    """Create a TableServiceClient using connection string or managed identity."""
+    conn_str = os.environ.get("AzureWebJobsStorage", "")
+    if conn_str:
+        return TableServiceClient.from_connection_string(conn_str)
+
+    account_name = os.environ.get("AzureWebJobsStorage__accountName", "")
+    if account_name:
+        from azure.identity import DefaultAzureCredential
+
+        endpoint = f"https://{account_name}.table.core.windows.net"
+        return TableServiceClient(endpoint=endpoint, credential=DefaultAzureCredential())
+
+    raise RuntimeError("No storage configuration: set AzureWebJobsStorage or AzureWebJobsStorage__accountName")
+
+
 def _get_table(name: str) -> TableClient:
     """Return a cached TableClient for *name*, creating the table on first access."""
     if name not in _cached_clients:
-        conn_str = os.environ["AzureWebJobsStorage"]
-        service = TableServiceClient.from_connection_string(conn_str)
+        service = _build_table_service()
         service.create_table_if_not_exists(name)
         _cached_clients[name] = service.get_table_client(name)
     return _cached_clients[name]

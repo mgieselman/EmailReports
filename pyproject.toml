@@ -27,7 +27,7 @@ module = "graph_client"
 warn_return_any = false  # Graph API returns untyped JSON
 
 [[tool.mypy.overrides]]
-module = ["defusedxml", "defusedxml.*", "msal", "jinja2", "markupsafe"]
+module = ["defusedxml", "defusedxml.*", "msal", "jinja2", "markupsafe", "azure.identity"]
 ignore_missing_imports = true
 follow_untyped_imports = true
 

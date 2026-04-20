@@ -54,7 +54,7 @@ The summary includes:
 
 See [Report Interpretation Guide](report-interpretation.md) for how to read and act on these reports.
 
-Summary data is stored in Azure Table Storage (using the same storage account as the function runtime — no additional cost).
+Summary data is stored in Azure Table Storage using the function app's system-assigned managed identity. When `AzureWebJobsStorage__accountName` is set, `storage.py` authenticates via `DefaultAzureCredential`. For local development, set `AzureWebJobsStorage` to a connection string instead.
 
 ## Abuse Reporting
 

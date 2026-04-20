@@ -8,7 +8,7 @@
     "AZURE_CLIENT_ID": "<your-app-registration-client-id>",
     "AZURE_CLIENT_SECRET": "<your-app-registration-client-secret>",
 
-    "REPORT_MAILBOX": "emailreports@gieselman.com",
+    "REPORT_MAILBOX": "emailreports@example.com",
     "MAIL_FOLDER": "Email Reports",
     "DMARC_ALIAS": "dmarc-reports@gieselman.com",
     "TLSRPT_ALIAS": "tls-reports@gieselman.com",

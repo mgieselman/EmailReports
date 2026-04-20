@@ -43,6 +43,44 @@ class TestGetTable:
         MockTableService.from_connection_string.assert_called_once()
 
 
+class TestBuildTableService:
+    @patch("storage.TableServiceClient")
+    def test_uses_connection_string_when_available(self, MockTableService):
+        mock_service = MagicMock()
+        MockTableService.from_connection_string.return_value = mock_service
+
+        result = storage._build_table_service()
+
+        MockTableService.from_connection_string.assert_called_once()
+        assert result == mock_service
+
+    @patch("storage.TableServiceClient")
+    def test_uses_managed_identity_when_no_connection_string(self, MockTableService, monkeypatch):
+        monkeypatch.delenv("AzureWebJobsStorage", raising=False)
+        monkeypatch.setenv("AzureWebJobsStorage__accountName", "mystorageaccount")
+        mock_service = MagicMock()
+        MockTableService.return_value = mock_service
+
+        with patch("azure.identity.DefaultAzureCredential") as MockCredential:
+            mock_cred = MagicMock()
+            MockCredential.return_value = mock_cred
+
+            result = storage._build_table_service()
+
+            MockTableService.assert_called_once_with(
+                endpoint="https://mystorageaccount.table.core.windows.net",
+                credential=mock_cred,
+            )
+            assert result == mock_service
+
+    def test_raises_when_no_storage_config(self, monkeypatch):
+        monkeypatch.delenv("AzureWebJobsStorage", raising=False)
+        monkeypatch.delenv("AzureWebJobsStorage__accountName", raising=False)
+
+        with pytest.raises(RuntimeError, match="No storage configuration"):
+            storage._build_table_service()
+
+
 class TestSaveReportRecord:
     @patch("storage._get_table")
     def test_saves_entity(self, mock_get_client):
@@ -240,10 +278,10 @@ class TestQueryPeriodRange:
 
 
 class TestGetTableAbuseReports:
-    @patch("storage.TableServiceClient")
-    def test_creates_abuse_table_if_not_exists(self, MockTableService):
+    @patch("storage._build_table_service")
+    def test_creates_abuse_table_if_not_exists(self, mock_build):
         mock_service = MagicMock()
-        MockTableService.from_connection_string.return_value = mock_service
+        mock_build.return_value = mock_service
 
         client = storage._get_table("abusereports")
 
@@ -251,10 +289,10 @@ class TestGetTableAbuseReports:
         mock_service.get_table_client.assert_called_once_with("abusereports")
         assert client == mock_service.get_table_client.return_value
 
-    @patch("storage.TableServiceClient")
-    def test_different_tables_cached_separately(self, MockTableService):
+    @patch("storage._build_table_service")
+    def test_different_tables_cached_separately(self, mock_build):
         mock_service = MagicMock()
-        MockTableService.from_connection_string.return_value = mock_service
+        mock_build.return_value = mock_service
 
         storage._get_table("reporthistory")
         storage._get_table("abusereports")
