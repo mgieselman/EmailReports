@@ -28,9 +28,25 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      - name: Open storage firewall for deployment
+        run: |
+          az storage account update \
+            --name stemailreportsprod \
+            --resource-group rg-emailreports-prod \
+            --default-action Allow
+          sleep 30  # wait for firewall rule to propagate
+
       - name: Deploy to Azure Functions
         uses: Azure/functions-action@v1
         with:
           app-name: func-emailreports-flex
           package: .
           remote-build: false
+
+      - name: Restore storage firewall
+        if: always()
+        run: |
+          az storage account update \
+            --name stemailreportsprod \
+            --resource-group rg-emailreports-prod \
+            --default-action Deny
